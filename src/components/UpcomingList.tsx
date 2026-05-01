@@ -21,11 +21,12 @@ export default function UpcomingList({ tasks, onSelectDate }: Props) {
         </p>
       ) : (
         <ul className="space-y-1">
-          {tasks.map((t) => (
+          {tasks.map((t) =>
+            t.dueDate ? (
             <li key={t.id}>
               <button
                 type="button"
-                onClick={() => onSelectDate(t.dueDate)}
+                onClick={() => onSelectDate(t.dueDate as string)}
                 className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-orange-100 dark:hover:bg-orange-900/30"
               >
                 <span className="w-20 flex-none text-xs font-medium text-orange-700 dark:text-orange-300">
@@ -46,7 +47,8 @@ export default function UpcomingList({ tasks, onSelectDate }: Props) {
                 </span>
               </button>
             </li>
-          ))}
+            ) : null,
+          )}
         </ul>
       )}
     </div>
