@@ -1,47 +1,26 @@
 // Service Worker for Задачник.
-// Strategy: network-first with cache fallback. Cache static assets on install.
+// Pass-through (no caching) — keeps PWA installability and unblocks notifications,
+// while letting the browser/CDN handle freshness. Removes any stale caches from
+// previous versions so users automatically recover after deploys.
 
-const CACHE_NAME = "planner-cache-v1";
-const PRECACHE = ["/", "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png", "/apple-icon.png"];
+const CACHE_NAME = "planner-cache-v3";
 
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE).catch(() => {})),
-  );
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)),
+    Promise.all([
+      caches.keys().then((keys) =>
+        Promise.all(keys.map((k) => caches.delete(k))),
       ),
-    ),
-  );
-  self.clients.claim();
-});
-
-self.addEventListener("fetch", (event) => {
-  const { request } = event;
-  if (request.method !== "GET") return;
-  const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return;
-
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        if (response.ok && response.type === "basic") {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-        }
-        return response;
-      })
-      .catch(() => caches.match(request).then((r) => r || caches.match("/"))),
+      self.clients.claim(),
+    ]),
   );
 });
 
-// Optional: handle push events when we wire up push notifications later.
+// Future hook: handle push notifications when we wire them up.
 self.addEventListener("push", (event) => {
   if (!event.data) return;
   let payload = { title: "Задачник", body: "" };
