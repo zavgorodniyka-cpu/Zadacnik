@@ -1,20 +1,47 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import type { Reminder, Subtask, Task } from "@/types/task";
 import type { Anniversary } from "@/types/anniversary";
 import type { Folder, IdeaItem } from "@/types/folder";
-import { generateId, loadTasks, saveTasks } from "@/lib/storage";
+import { generateId } from "@/lib/storage";
 import { todayISO } from "@/lib/dates";
 import { generateRecurringTasks } from "@/lib/recurring";
-import { loadAnniversaries, saveAnniversaries } from "@/lib/anniversaries";
+import { loadTasks as loadTasksLocal } from "@/lib/storage";
+import { loadAnniversaries as loadAnniversariesLocal } from "@/lib/anniversaries";
 import {
-  loadFolders,
-  loadIdeas,
-  saveFolders,
-  saveIdeas,
-  seedFoldersOnce,
+  loadFolders as loadFoldersLocal,
+  loadIdeas as loadIdeasLocal,
 } from "@/lib/folders";
+import { clearLocalEntityStorage, createDefaultFolders } from "@/lib/seed";
+import { getSupabase } from "@/lib/supabase";
+import {
+  bulkInsertTasks,
+  deleteTask as dbDeleteTask,
+  fetchTasks,
+  insertTask as dbInsertTask,
+  updateTask as dbUpdateTask,
+} from "@/lib/db/tasks";
+import {
+  bulkInsertAnniversaries,
+  deleteAnniversary as dbDeleteAnniversary,
+  fetchAnniversaries,
+  insertAnniversary as dbInsertAnniversary,
+  updateAnniversary as dbUpdateAnniversary,
+} from "@/lib/db/anniversaries";
+import {
+  bulkInsertFolders,
+  bulkInsertIdeas,
+  deleteFolder as dbDeleteFolder,
+  deleteIdea as dbDeleteIdea,
+  fetchFolders,
+  fetchIdeas,
+  insertFolder as dbInsertFolder,
+  insertIdea as dbInsertIdea,
+  updateFolder as dbUpdateFolder,
+  updateIdea as dbUpdateIdea,
+} from "@/lib/db/folders";
 import {
   loadSettings,
   REMINDER_DEFAULTS,
@@ -36,7 +63,18 @@ import UpcomingList from "./UpcomingList";
 
 type View = "calendar" | "reminders" | "ideas";
 
-export default function Planner() {
+type Props = {
+  session: Session;
+};
+
+function logErr(err: unknown) {
+  if (err) console.error("[planner db]", err);
+}
+
+export default function Planner({ session }: Props) {
+  const userId = session.user.id;
+  const userEmail = session.user.email ?? "";
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [anniversaries, setAnniversaries] = useState<Anniversary[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -82,49 +120,81 @@ export default function Planner() {
     });
   }
 
+  // Initial load: fetch from Supabase, migrate localStorage if first login.
   useEffect(() => {
-    const loaded = loadTasks();
-    const RECURRING_FLAG = "planner.recurring.v1";
-    const alreadySeeded = window.localStorage.getItem(RECURRING_FLAG);
-    if (!alreadySeeded) {
-      const seeded = generateRecurringTasks(new Date(), 12);
-      setTasks([...loaded, ...seeded]);
-      window.localStorage.setItem(RECURRING_FLAG, "true");
-    } else {
-      setTasks(loaded);
-    }
-    setAnniversaries(loadAnniversaries());
+    let cancelled = false;
+    (async () => {
+      try {
+        const [t, a, f, i] = await Promise.all([
+          fetchTasks(),
+          fetchAnniversaries(),
+          fetchFolders(),
+          fetchIdeas(),
+        ]);
+        if (cancelled) return;
 
-    const existingFolders = loadFolders();
-    const seeded = seedFoldersOnce(existingFolders);
-    setFolders(seeded ?? existingFolders);
-    setIdeas(loadIdeas());
+        const cloudIsEmpty =
+          t.length === 0 && a.length === 0 && f.length === 0 && i.length === 0;
 
-    setNotifySettings(loadSettings());
-    setHydrated(true);
-  }, []);
+        if (cloudIsEmpty) {
+          const localTasks = loadTasksLocal();
+          const localAnnivs = loadAnniversariesLocal();
+          const localFolders = loadFoldersLocal();
+          const localIdeas = loadIdeasLocal();
 
-  useEffect(() => {
-    if (hydrated) saveTasks(tasks);
-  }, [tasks, hydrated]);
+          const haveLocal =
+            localTasks.length > 0 ||
+            localAnnivs.length > 0 ||
+            localFolders.length > 0 ||
+            localIdeas.length > 0;
 
-  useEffect(() => {
-    if (hydrated) saveAnniversaries(anniversaries);
-  }, [anniversaries, hydrated]);
+          if (haveLocal) {
+            await Promise.all([
+              bulkInsertTasks(localTasks),
+              bulkInsertAnniversaries(localAnnivs),
+            ]);
+            await bulkInsertFolders(localFolders);
+            await bulkInsertIdeas(localIdeas);
+            if (cancelled) return;
+            setTasks(localTasks);
+            setAnniversaries(localAnnivs);
+            setFolders(localFolders);
+            setIdeas(localIdeas);
+            clearLocalEntityStorage();
+          } else {
+            const seededTasks = generateRecurringTasks(new Date(), 12);
+            const seededFolders = createDefaultFolders();
+            await Promise.all([
+              bulkInsertTasks(seededTasks),
+              bulkInsertFolders(seededFolders),
+            ]);
+            if (cancelled) return;
+            setTasks(seededTasks);
+            setFolders(seededFolders);
+          }
+        } else {
+          setTasks(t);
+          setAnniversaries(a);
+          setFolders(f);
+          setIdeas(i);
+        }
 
-  useEffect(() => {
-    if (hydrated) saveFolders(folders);
-  }, [folders, hydrated]);
-
-  useEffect(() => {
-    if (hydrated) saveIdeas(ideas);
-  }, [ideas, hydrated]);
+        setNotifySettings(loadSettings());
+      } catch (err) {
+        logErr(err);
+      } finally {
+        if (!cancelled) setHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   useEffect(() => {
     if (hydrated) saveSettings(notifySettings);
   }, [notifySettings, hydrated]);
 
-  // Schedule browser notifications and refresh every 5 minutes.
   useEffect(() => {
     if (!hydrated || !notifySettings.enabled) return;
     let cleanup = scheduleNotifications(tasks, anniversaries, notifySettings);
@@ -141,7 +211,6 @@ export default function Planner() {
     };
   }, [tasks, anniversaries, notifySettings, hydrated]);
 
-  // Keyboard shortcuts.
   useEffect(() => {
     function isTyping(target: EventTarget | null): boolean {
       if (!(target instanceof HTMLElement)) return false;
@@ -153,7 +222,6 @@ export default function Planner() {
         target.isContentEditable
       );
     }
-
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         if (showForm) {
@@ -167,7 +235,6 @@ export default function Planner() {
       }
       if (isTyping(e.target)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-
       if (e.key === "/" || (e.key === "f" && (e.metaKey || e.ctrlKey))) {
         e.preventDefault();
         searchRef.current?.focus();
@@ -176,7 +243,6 @@ export default function Planner() {
         quickAddRef.current?.focus();
       }
     }
-
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [showForm, search]);
@@ -244,25 +310,23 @@ export default function Planner() {
     reminder: Reminder | undefined;
   }) {
     if (editingTask) {
+      const id = editingTask.id;
+      const patch: Partial<Task> = {
+        title: data.title,
+        description: data.description || undefined,
+        dueDate: data.dueDate,
+        dueTime: data.dueTime || undefined,
+        endTime: data.endTime || undefined,
+        priority: data.priority,
+        tags: data.tags,
+        subtasks: data.subtasks.length > 0 ? data.subtasks : undefined,
+        reminder: data.reminder,
+      };
       setTasks((prev) =>
-        prev.map((t) =>
-          t.id === editingTask.id
-            ? {
-                ...t,
-                title: data.title,
-                description: data.description || undefined,
-                dueDate: data.dueDate,
-                dueTime: data.dueTime || undefined,
-                endTime: data.endTime || undefined,
-                priority: data.priority,
-                tags: data.tags,
-                subtasks: data.subtasks.length > 0 ? data.subtasks : undefined,
-                reminder: data.reminder,
-              }
-            : t,
-        ),
+        prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
       );
       setEditingTask(null);
+      dbUpdateTask(id, patch).catch(logErr);
     } else {
       const newTask: Task = {
         id: generateId(),
@@ -281,13 +345,8 @@ export default function Planner() {
       };
       setTasks((prev) => [...prev, newTask]);
       setSelectedDate(data.dueDate);
+      dbInsertTask(newTask).catch(logErr);
     }
-  }
-
-  function handleSetReminder(id: string, reminder: Reminder | undefined) {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, reminder } : t)),
-    );
   }
 
   function handleSchedule(id: string, dueDate: string) {
@@ -295,6 +354,7 @@ export default function Planner() {
       prev.map((t) => (t.id === id ? { ...t, dueDate } : t)),
     );
     setSelectedDate(dueDate);
+    dbUpdateTask(id, { dueDate }).catch(logErr);
   }
 
   function handleSmartCreate(data: {
@@ -316,6 +376,7 @@ export default function Planner() {
     };
     setTasks((prev) => [...prev, newTask]);
     if (data.dueDate) setSelectedDate(data.dueDate);
+    dbInsertTask(newTask).catch(logErr);
   }
 
   function handleQuickAdd(title: string) {
@@ -328,31 +389,40 @@ export default function Planner() {
       createdAt: new Date().toISOString(),
     };
     setTasks((prev) => [...prev, newTask]);
+    dbInsertTask(newTask).catch(logErr);
   }
 
   function handleToggle(id: string) {
+    const current = tasks.find((t) => t.id === id);
+    if (!current) return;
+    const newStatus = current.status === "done" ? "todo" : "done";
     setTasks((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? { ...t, status: t.status === "done" ? "todo" : "done" }
-          : t,
-      ),
+      prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t)),
     );
+    dbUpdateTask(id, { status: newStatus }).catch(logErr);
   }
 
   function handleTogglePriority(id: string) {
+    const current = tasks.find((t) => t.id === id);
+    if (!current) return;
+    const newPriority = current.priority === "high" ? undefined : "high";
     setTasks((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? { ...t, priority: t.priority === "high" ? undefined : "high" }
-          : t,
-      ),
+      prev.map((t) => (t.id === id ? { ...t, priority: newPriority } : t)),
     );
+    dbUpdateTask(id, { priority: newPriority }).catch(logErr);
+  }
+
+  function handleSetReminder(id: string, reminder: Reminder | undefined) {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, reminder } : t)),
+    );
+    dbUpdateTask(id, { reminder }).catch(logErr);
   }
 
   function handleDelete(id: string) {
     setTasks((prev) => prev.filter((t) => t.id !== id));
     if (editingTask?.id === id) setEditingTask(null);
+    dbDeleteTask(id).catch(logErr);
   }
 
   function handleEdit(task: Task) {
@@ -363,41 +433,68 @@ export default function Planner() {
 
   function handleAddAnniversary(a: Anniversary) {
     setAnniversaries((prev) => [...prev, a]);
+    dbInsertAnniversary(a).catch(logErr);
   }
 
   function handleUpdateAnniversary(id: string, patch: Partial<Anniversary>) {
     setAnniversaries((prev) =>
       prev.map((a) => (a.id === id ? { ...a, ...patch } : a)),
     );
+    dbUpdateAnniversary(id, patch).catch(logErr);
   }
 
   function handleDeleteAnniversary(id: string) {
     setAnniversaries((prev) => prev.filter((a) => a.id !== id));
+    dbDeleteAnniversary(id).catch(logErr);
   }
 
   function handleAddFolder(folder: Folder) {
     setFolders((prev) => [...prev, folder]);
+    dbInsertFolder(folder).catch(logErr);
   }
 
   function handleUpdateFolder(id: string, patch: Partial<Folder>) {
     setFolders((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+    dbUpdateFolder(id, patch).catch(logErr);
   }
 
   function handleDeleteFolder(id: string) {
     setFolders((prev) => prev.filter((f) => f.id !== id));
     setIdeas((prev) => prev.filter((i) => i.folderId !== id));
+    dbDeleteFolder(id).catch(logErr);
   }
 
   function handleAddIdea(item: IdeaItem) {
     setIdeas((prev) => [...prev, item]);
+    dbInsertIdea(item).catch(logErr);
   }
 
   function handleUpdateIdea(id: string, patch: Partial<IdeaItem>) {
     setIdeas((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+    dbUpdateIdea(id, patch).catch(logErr);
   }
 
   function handleDeleteIdea(id: string) {
     setIdeas((prev) => prev.filter((i) => i.id !== id));
+    dbDeleteIdea(id).catch(logErr);
+  }
+
+  async function handleSignOut() {
+    try {
+      await getSupabase().auth.signOut();
+    } catch (err) {
+      logErr(err);
+    }
+  }
+
+  if (!hydrated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+        <div className="text-sm text-zinc-500 dark:text-zinc-400">
+          Загружаю твои данные…
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -454,6 +551,17 @@ export default function Planner() {
           />
           <button
             type="button"
+            onClick={handleSignOut}
+            title={`Выйти — ${userEmail}`}
+            aria-label="Выйти"
+            className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+          >
+            <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 3h2.5a.5.5 0 01.5.5v9a.5.5 0 01-.5.5H10M7 5l-3 3 3 3M4 8h7" />
+            </svg>
+          </button>
+          <button
+            type="button"
             onClick={() => setFormOpen(true)}
             className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
@@ -472,19 +580,6 @@ export default function Planner() {
           onToggle={toggleTagHidden}
           onReset={() => setHiddenTags(new Set())}
         />
-      )}
-
-      {isSearching && (
-        <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-          Поиск: <span className="font-medium text-zinc-900 dark:text-zinc-100">«{search.trim()}»</span> · найдено {filteredTasks.length}
-          <button
-            type="button"
-            onClick={() => setSearch("")}
-            className="ml-2 underline-offset-2 hover:underline"
-          >
-            сбросить
-          </button>
-        </div>
       )}
 
       {showForm && (
@@ -523,53 +618,53 @@ export default function Planner() {
           generateId={generateId}
         />
       ) : (
-      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr] lg:items-start">
-        <div className="space-y-4">
-          <Calendar
-            tasks={filteredTasks}
-            anniversaries={anniversaries}
-            selectedDate={selectedDate}
-            onSelectDate={(iso) => {
-              setSelectedDate(iso);
-              setEditingTask(null);
-            }}
-          />
-          <TaskList
-            tasks={filteredTasks}
-            selectedDate={selectedDate}
-            reminderDefaults={reminderDefaults}
-            onToggle={handleToggle}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            onTogglePriority={handleTogglePriority}
-            onSnooze={handleSchedule}
-            onSetReminder={handleSetReminder}
-          />
-          <DayTimeline
-            tasks={filteredTasks}
-            selectedDate={selectedDate}
-            onTaskClick={handleEdit}
-            onSlotClick={handleSlotClick}
-          />
-        </div>
+        <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr] lg:items-start">
+          <div className="space-y-4">
+            <Calendar
+              tasks={filteredTasks}
+              anniversaries={anniversaries}
+              selectedDate={selectedDate}
+              onSelectDate={(iso) => {
+                setSelectedDate(iso);
+                setEditingTask(null);
+              }}
+            />
+            <TaskList
+              tasks={filteredTasks}
+              selectedDate={selectedDate}
+              reminderDefaults={reminderDefaults}
+              onToggle={handleToggle}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              onTogglePriority={handleTogglePriority}
+              onSnooze={handleSchedule}
+              onSetReminder={handleSetReminder}
+            />
+            <DayTimeline
+              tasks={filteredTasks}
+              selectedDate={selectedDate}
+              onTaskClick={handleEdit}
+              onSlotClick={handleSlotClick}
+            />
+          </div>
 
-        <div className="space-y-4">
-          <UpcomingList tasks={upcoming} onSelectDate={setSelectedDate} />
-          <DatelessList
-            tasks={allTasks}
-            reminderDefaults={reminderDefaults}
-            search={search}
-            searchInputRef={searchRef}
-            onSearchChange={setSearch}
-            onAdd={handleQuickAdd}
-            onToggle={handleToggle}
-            onDelete={handleDelete}
-            onSchedule={handleSchedule}
-            onTogglePriority={handleTogglePriority}
-            onSetReminder={handleSetReminder}
-          />
+          <div className="space-y-4">
+            <UpcomingList tasks={upcoming} onSelectDate={setSelectedDate} />
+            <DatelessList
+              tasks={allTasks}
+              reminderDefaults={reminderDefaults}
+              search={search}
+              searchInputRef={searchRef}
+              onSearchChange={setSearch}
+              onAdd={handleQuickAdd}
+              onToggle={handleToggle}
+              onDelete={handleDelete}
+              onSchedule={handleSchedule}
+              onTogglePriority={handleTogglePriority}
+              onSetReminder={handleSetReminder}
+            />
+          </div>
         </div>
-      </div>
       )}
     </div>
   );
