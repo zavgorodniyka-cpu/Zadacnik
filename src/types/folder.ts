@@ -11,5 +11,9 @@ export type IdeaItem = {
   title: string;
   url?: string;
   notes?: string;
+  filePath?: string;
+  fileName?: string;
+  fileSize?: number;
+  fileMimeType?: string;
   createdAt: string;
 };

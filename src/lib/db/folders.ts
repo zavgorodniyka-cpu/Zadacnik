@@ -18,6 +18,10 @@ type DbIdea = {
   title: string;
   url: string | null;
   notes: string | null;
+  file_path: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  file_mime_type: string | null;
   created_at: string;
 };
 
@@ -46,6 +50,10 @@ function ideaFromDb(row: DbIdea): IdeaItem {
     title: row.title,
     url: row.url ?? undefined,
     notes: row.notes ?? undefined,
+    filePath: row.file_path ?? undefined,
+    fileName: row.file_name ?? undefined,
+    fileSize: row.file_size ?? undefined,
+    fileMimeType: row.file_mime_type ?? undefined,
     createdAt: row.created_at,
   };
 }
@@ -57,6 +65,10 @@ function ideaToDb(i: IdeaItem): Omit<DbIdea, "user_id"> {
     title: i.title,
     url: i.url ?? null,
     notes: i.notes ?? null,
+    file_path: i.filePath ?? null,
+    file_name: i.fileName ?? null,
+    file_size: i.fileSize ?? null,
+    file_mime_type: i.fileMimeType ?? null,
     created_at: i.createdAt,
   };
 }
@@ -119,6 +131,10 @@ export async function updateIdea(id: string, patch: Partial<IdeaItem>): Promise<
   if (patch.title !== undefined) dbPatch.title = patch.title;
   if (patch.url !== undefined) dbPatch.url = patch.url ?? null;
   if (patch.notes !== undefined) dbPatch.notes = patch.notes ?? null;
+  if (patch.filePath !== undefined) dbPatch.file_path = patch.filePath ?? null;
+  if (patch.fileName !== undefined) dbPatch.file_name = patch.fileName ?? null;
+  if (patch.fileSize !== undefined) dbPatch.file_size = patch.fileSize ?? null;
+  if (patch.fileMimeType !== undefined) dbPatch.file_mime_type = patch.fileMimeType ?? null;
   const { error } = await getSupabase().from("ideas").update(dbPatch).eq("id", id);
   if (error) throw error;
 }

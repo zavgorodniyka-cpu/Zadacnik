@@ -3,10 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Folder, IdeaItem } from "@/types/folder";
 import { extractDomain } from "@/lib/folders";
+import {
+  deleteIdeaFile,
+  formatBytes,
+  getIdeaFileUrl,
+  isImage,
+  isPdf,
+  uploadIdeaFile,
+  type UploadedFile,
+} from "@/lib/db/storage";
 
 type Props = {
   folders: Folder[];
   items: IdeaItem[];
+  userId: string;
   onAddFolder: (folder: Folder) => void;
   onUpdateFolder: (id: string, patch: Partial<Folder>) => void;
   onDeleteFolder: (id: string) => void;
@@ -21,6 +31,7 @@ const FOLDER_EMOJI_PRESETS = ["📁", "🏠", "🧖", "💼", "👪", "📚", "�
 export default function IdeasView({
   folders,
   items,
+  userId,
   onAddFolder,
   onUpdateFolder,
   onDeleteFolder,
@@ -78,6 +89,7 @@ export default function IdeasView({
       <ItemsPanel
         folder={selectedFolder}
         items={folderItems}
+        userId={userId}
         onAdd={onAddItem}
         onUpdate={onUpdateItem}
         onDelete={onDeleteItem}
@@ -332,6 +344,7 @@ function FolderEditRow({
 function ItemsPanel({
   folder,
   items,
+  userId,
   onAdd,
   onUpdate,
   onDelete,
@@ -339,6 +352,7 @@ function ItemsPanel({
 }: {
   folder: Folder | null;
   items: IdeaItem[];
+  userId: string;
   onAdd: (item: IdeaItem) => void;
   onUpdate: (id: string, patch: Partial<IdeaItem>) => void;
   onDelete: (id: string) => void;
@@ -382,6 +396,7 @@ function ItemsPanel({
       {adding && (
         <NewItemForm
           folderId={folder.id}
+          userId={userId}
           onSubmit={(item) => {
             onAdd(item);
             setAdding(false);
@@ -393,7 +408,7 @@ function ItemsPanel({
 
       {items.length === 0 && !adding ? (
         <p className="py-8 text-center text-sm text-zinc-400 dark:text-zinc-600">
-          Пусто. Добавь первую идею или ссылку.
+          Пусто. Добавь первую идею, ссылку или файл.
         </p>
       ) : (
         <ul className="space-y-1.5">
@@ -402,11 +417,15 @@ function ItemsPanel({
               <ItemEditRow
                 key={item.id}
                 item={item}
+                userId={userId}
                 onSave={(patch) => {
                   onUpdate(item.id, patch);
                   setEditingId(null);
                 }}
                 onDelete={() => {
+                  if (item.filePath) {
+                    deleteIdeaFile(item.filePath).catch(() => {});
+                  }
                   onDelete(item.id);
                   setEditingId(null);
                 }}
@@ -428,11 +447,13 @@ function ItemsPanel({
 
 function NewItemForm({
   folderId,
+  userId,
   onSubmit,
   onCancel,
   generateId,
 }: {
   folderId: string;
+  userId: string;
   onSubmit: (item: IdeaItem) => void;
   onCancel: () => void;
   generateId: () => string;
@@ -440,6 +461,38 @@ function NewItemForm({
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [notes, setNotes] = useState("");
+  const [file, setFile] = useState<UploadedFile | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      if (file) await deleteIdeaFile(file.path).catch(() => {});
+      const uploaded = await uploadIdeaFile(f, userId);
+      setFile(uploaded);
+      if (!title.trim()) setTitle(f.name.replace(/\.[^.]+$/, ""));
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Не удалось загрузить");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function removeFile() {
+    if (!file) return;
+    await deleteIdeaFile(file.path).catch(() => {});
+    setFile(null);
+  }
+
+  async function handleCancel() {
+    if (file) await deleteIdeaFile(file.path).catch(() => {});
+    onCancel();
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -451,11 +504,16 @@ function NewItemForm({
       title: trimmed,
       url: url.trim() || undefined,
       notes: notes.trim() || undefined,
+      filePath: file?.path,
+      fileName: file?.name,
+      fileSize: file?.size,
+      fileMimeType: file?.mimeType,
       createdAt: new Date().toISOString(),
     });
     setTitle("");
     setUrl("");
     setNotes("");
+    setFile(null);
   }
 
   return (
@@ -485,18 +543,28 @@ function NewItemForm({
         rows={2}
         className="mb-2 w-full resize-none rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
       />
-      <div className="flex gap-2">
+
+      <FileAttachField
+        file={file}
+        uploading={uploading}
+        error={uploadError}
+        onChange={handleFileChange}
+        onRemove={removeFile}
+      />
+
+      <div className="mt-2 flex gap-2">
         <button
           type="submit"
-          disabled={!title.trim()}
+          disabled={!title.trim() || uploading}
           className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
         >
           Сохранить
         </button>
         <button
           type="button"
-          onClick={onCancel}
-          className="rounded-lg px-2 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          onClick={handleCancel}
+          disabled={uploading}
+          className="rounded-lg px-2 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800"
         >
           Отмена
         </button>
@@ -513,12 +581,20 @@ function ItemDisplay({
   onEdit: () => void;
 }) {
   const domain = item.url ? extractDomain(item.url) : null;
+  const hasFile = !!item.filePath;
+  const hasImage = hasFile && isImage(item.fileMimeType);
+
+  let icon = "📝";
+  if (item.url && !hasFile) icon = "🔗";
+  else if (hasFile) {
+    if (hasImage) icon = "🖼️";
+    else if (isPdf(item.fileMimeType)) icon = "📄";
+    else icon = "📎";
+  }
 
   return (
     <li className="group flex items-start gap-3 rounded-lg border border-transparent px-3 py-2.5 transition hover:border-zinc-200 hover:bg-zinc-50 dark:hover:border-zinc-800 dark:hover:bg-zinc-900">
-      <span className="mt-0.5 flex-none text-base">
-        {item.url ? "🔗" : "📝"}
-      </span>
+      <span className="mt-0.5 flex-none text-base">{icon}</span>
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
           {item.url ? (
@@ -547,6 +623,14 @@ function ItemDisplay({
             {item.notes}
           </p>
         )}
+        {hasFile && item.filePath && (
+          <FilePreview
+            path={item.filePath}
+            name={item.fileName ?? "файл"}
+            size={item.fileSize ?? 0}
+            mimeType={item.fileMimeType}
+          />
+        )}
       </div>
       <button
         type="button"
@@ -562,13 +646,147 @@ function ItemDisplay({
   );
 }
 
+function FileAttachField({
+  file,
+  uploading,
+  error,
+  onChange,
+  onRemove,
+}: {
+  file: UploadedFile | null;
+  uploading: boolean;
+  error: string | null;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div>
+      {file ? (
+        <div className="flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs dark:border-zinc-800 dark:bg-zinc-950">
+          <span className="flex-none">📎</span>
+          <span className="flex-1 truncate text-zinc-700 dark:text-zinc-300">
+            {file.name}
+          </span>
+          <span className="flex-none text-zinc-400 dark:text-zinc-600">
+            {formatBytes(file.size)}
+          </span>
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label="Убрать файл"
+            className="flex-none rounded p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+          >
+            <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </button>
+        </div>
+      ) : (
+        <label
+          className={[
+            "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-zinc-300 bg-white px-3 py-2 text-xs transition hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:hover:border-zinc-500 dark:hover:bg-zinc-900",
+            uploading ? "pointer-events-none opacity-50" : "",
+          ].join(" ")}
+        >
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 3v8M4 7l4-4 4 4M3 13h10" />
+          </svg>
+          <span className="text-zinc-700 dark:text-zinc-300">
+            {uploading ? "Загружаю…" : "Прикрепить файл"}
+          </span>
+          <input
+            type="file"
+            className="hidden"
+            onChange={onChange}
+            disabled={uploading}
+          />
+        </label>
+      )}
+      {error && (
+        <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">{error}</p>
+      )}
+    </div>
+  );
+}
+
+function FilePreview({
+  path,
+  name,
+  size,
+  mimeType,
+}: {
+  path: string;
+  name: string;
+  size: number;
+  mimeType: string | undefined;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getIdeaFileUrl(path).then((u) => {
+      if (!cancelled) setUrl(u);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
+
+  if (isImage(mimeType)) {
+    return (
+      <a
+        href={url ?? "#"}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => {
+          if (!url) e.preventDefault();
+          e.stopPropagation();
+        }}
+        className="mt-2 block w-fit overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800"
+      >
+        {url ? (
+          <img
+            src={url}
+            alt={name}
+            className="block max-h-48 max-w-xs object-cover"
+          />
+        ) : (
+          <div className="flex h-24 w-40 items-center justify-center bg-zinc-100 text-xs text-zinc-400 dark:bg-zinc-900">
+            Загрузка…
+          </div>
+        )}
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href={url ?? "#"}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => {
+        if (!url) e.preventDefault();
+        e.stopPropagation();
+      }}
+      className="mt-2 inline-flex items-center gap-2 rounded-md bg-zinc-100 px-2 py-1 text-xs text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+    >
+      <span>{isPdf(mimeType) ? "📄" : "📎"}</span>
+      <span className="max-w-[14rem] truncate">{name}</span>
+      <span className="text-zinc-400 dark:text-zinc-600">·</span>
+      <span className="text-zinc-400 dark:text-zinc-600">{formatBytes(size)}</span>
+    </a>
+  );
+}
+
 function ItemEditRow({
   item,
+  userId,
   onSave,
   onDelete,
   onCancel,
 }: {
   item: IdeaItem;
+  userId: string;
   onSave: (patch: Partial<IdeaItem>) => void;
   onDelete: () => void;
   onCancel: () => void;
@@ -576,14 +794,72 @@ function ItemEditRow({
   const [title, setTitle] = useState(item.title);
   const [url, setUrl] = useState(item.url ?? "");
   const [notes, setNotes] = useState(item.notes ?? "");
+  const [file, setFile] = useState<UploadedFile | null>(
+    item.filePath
+      ? {
+          path: item.filePath,
+          name: item.fileName ?? "файл",
+          size: item.fileSize ?? 0,
+          mimeType: item.fileMimeType ?? "application/octet-stream",
+        }
+      : null,
+  );
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [originalPath] = useState<string | undefined>(item.filePath);
 
-  function save() {
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      // If a NEW file was uploaded earlier in this session, drop it before re-uploading.
+      if (file && file.path !== originalPath) {
+        await deleteIdeaFile(file.path).catch(() => {});
+      }
+      const uploaded = await uploadIdeaFile(f, userId);
+      setFile(uploaded);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Не удалось загрузить");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function removeFile() {
+    if (!file) return;
+    if (file.path !== originalPath) {
+      // Newly uploaded but not yet saved — actually delete from storage.
+      await deleteIdeaFile(file.path).catch(() => {});
+    }
+    setFile(null);
+  }
+
+  async function handleSave() {
     if (!title.trim()) return;
+    // If user replaced the original file with a different one, delete the old one.
+    if (originalPath && file?.path !== originalPath) {
+      await deleteIdeaFile(originalPath).catch(() => {});
+    }
     onSave({
       title: title.trim(),
       url: url.trim() || undefined,
       notes: notes.trim() || undefined,
+      filePath: file?.path,
+      fileName: file?.name,
+      fileSize: file?.size,
+      fileMimeType: file?.mimeType,
     });
+  }
+
+  async function handleCancel() {
+    // If user uploaded a new file but cancels, drop the orphan.
+    if (file && file.path !== originalPath) {
+      await deleteIdeaFile(file.path).catch(() => {});
+    }
+    onCancel();
   }
 
   return (
@@ -609,26 +885,37 @@ function ItemEditRow({
         rows={2}
         className="mb-2 w-full resize-none rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
       />
-      <div className="flex gap-2">
+
+      <FileAttachField
+        file={file}
+        uploading={uploading}
+        error={uploadError}
+        onChange={handleFileChange}
+        onRemove={removeFile}
+      />
+
+      <div className="mt-2 flex gap-2">
         <button
           type="button"
-          onClick={save}
-          disabled={!title.trim()}
+          onClick={handleSave}
+          disabled={!title.trim() || uploading}
           className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
         >
           Сохранить
         </button>
         <button
           type="button"
-          onClick={onCancel}
-          className="rounded-lg px-2 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          onClick={handleCancel}
+          disabled={uploading}
+          className="rounded-lg px-2 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800"
         >
           Отмена
         </button>
         <button
           type="button"
           onClick={onDelete}
-          className="ml-auto rounded-lg px-2 py-1.5 text-sm text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+          disabled={uploading}
+          className="ml-auto rounded-lg px-2 py-1.5 text-sm text-red-600 transition hover:bg-red-50 disabled:opacity-40 dark:text-red-400 dark:hover:bg-red-950/40"
         >
           Удалить
         </button>

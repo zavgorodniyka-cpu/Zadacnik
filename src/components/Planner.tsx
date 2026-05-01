@@ -609,6 +609,7 @@ export default function Planner({ session }: Props) {
         <IdeasView
           folders={folders}
           items={ideas}
+          userId={userId}
           onAddFolder={handleAddFolder}
           onUpdateFolder={handleUpdateFolder}
           onDeleteFolder={handleDeleteFolder}
