@@ -136,7 +136,9 @@ export default function Planner({ session }: Props) {
     let cancelled = false;
     (async () => {
       try {
-        const [t, a, f, i, ex] = await Promise.all([
+        // Use allSettled so one failing query (e.g. missing table)
+        // doesn't take down the rest of the page.
+        const [tR, aR, fR, iR, exR] = await Promise.allSettled([
           fetchTasks(),
           fetchAnniversaries(),
           fetchFolders(),
@@ -144,10 +146,23 @@ export default function Planner({ session }: Props) {
           fetchExpenses(),
         ]);
         if (cancelled) return;
+
+        if (tR.status === "rejected") logErr(tR.reason);
+        if (aR.status === "rejected") logErr(aR.reason);
+        if (fR.status === "rejected") logErr(fR.reason);
+        if (iR.status === "rejected") logErr(iR.reason);
+        if (exR.status === "rejected") logErr(exR.reason);
+
+        const t = tR.status === "fulfilled" ? tR.value : [];
+        const a = aR.status === "fulfilled" ? aR.value : [];
+        const f = fR.status === "fulfilled" ? fR.value : [];
+        const i = iR.status === "fulfilled" ? iR.value : [];
+        const ex = exR.status === "fulfilled" ? exR.value : [];
+
         setExpenses(ex);
 
         // Seed user's house expenses on first finance load (one-time per user).
-        if (ex.length === 0) {
+        if (ex.length === 0 && exR.status === "fulfilled") {
           const SEED_FLAG = "planner.expenses.seeded.v1";
           if (!window.localStorage.getItem(SEED_FLAG)) {
             const seeded = seedHouseExpenses();
