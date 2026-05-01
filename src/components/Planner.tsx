@@ -5,6 +5,7 @@ import type { Session } from "@supabase/supabase-js";
 import type { Reminder, Subtask, Task } from "@/types/task";
 import type { Anniversary } from "@/types/anniversary";
 import type { Folder, IdeaItem } from "@/types/folder";
+import type { Expense } from "@/types/expense";
 import { generateId } from "@/lib/storage";
 import { todayISO } from "@/lib/dates";
 import { generateRecurringTasks } from "@/lib/recurring";
@@ -15,7 +16,15 @@ import {
   loadIdeas as loadIdeasLocal,
 } from "@/lib/folders";
 import { clearLocalEntityStorage, createDefaultFolders } from "@/lib/seed";
+import { seedHouseExpenses } from "@/lib/expenses-import";
 import { getSupabase } from "@/lib/supabase";
+import {
+  bulkInsertExpenses,
+  deleteExpense as dbDeleteExpense,
+  fetchExpenses,
+  insertExpense as dbInsertExpense,
+  updateExpense as dbUpdateExpense,
+} from "@/lib/db/expenses";
 import {
   bulkInsertTasks,
   deleteTask as dbDeleteTask,
@@ -53,6 +62,7 @@ import AnniversariesWidget from "./AnniversariesWidget";
 import Calendar from "./Calendar";
 import DatelessList from "./DatelessList";
 import DayTimeline from "./DayTimeline";
+import ExpensesView from "./ExpensesView";
 import IdeasView from "./IdeasView";
 import NotificationsButton from "./NotificationsButton";
 import QuickAdd from "./QuickAdd";
@@ -61,7 +71,7 @@ import TaskForm from "./TaskForm";
 import TaskList from "./TaskList";
 import UpcomingList from "./UpcomingList";
 
-type View = "calendar" | "reminders" | "ideas";
+type View = "calendar" | "finance" | "reminders" | "ideas";
 
 type Props = {
   session: Session;
@@ -79,6 +89,7 @@ export default function Planner({ session }: Props) {
   const [anniversaries, setAnniversaries] = useState<Anniversary[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [ideas, setIdeas] = useState<IdeaItem[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [view, setView] = useState<View>("calendar");
   const [hydrated, setHydrated] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(() => todayISO());
@@ -125,13 +136,30 @@ export default function Planner({ session }: Props) {
     let cancelled = false;
     (async () => {
       try {
-        const [t, a, f, i] = await Promise.all([
+        const [t, a, f, i, ex] = await Promise.all([
           fetchTasks(),
           fetchAnniversaries(),
           fetchFolders(),
           fetchIdeas(),
+          fetchExpenses(),
         ]);
         if (cancelled) return;
+        setExpenses(ex);
+
+        // Seed user's house expenses on first finance load (one-time per user).
+        if (ex.length === 0) {
+          const SEED_FLAG = "planner.expenses.seeded.v1";
+          if (!window.localStorage.getItem(SEED_FLAG)) {
+            const seeded = seedHouseExpenses();
+            try {
+              await bulkInsertExpenses(seeded);
+              if (!cancelled) setExpenses(seeded);
+            } catch (err) {
+              logErr(err);
+            }
+            window.localStorage.setItem(SEED_FLAG, "true");
+          }
+        }
 
         const cloudIsEmpty =
           t.length === 0 && a.length === 0 && f.length === 0 && i.length === 0;
@@ -479,6 +507,26 @@ export default function Planner({ session }: Props) {
     dbDeleteIdea(id).catch(logErr);
   }
 
+  function handleAddExpense(e: Expense) {
+    setExpenses((prev) => [...prev, e]);
+    dbInsertExpense(e).catch(logErr);
+  }
+
+  function handleAddExpensesBulk(items: Expense[]) {
+    setExpenses((prev) => [...prev, ...items]);
+    bulkInsertExpenses(items).catch(logErr);
+  }
+
+  function handleUpdateExpense(id: string, patch: Partial<Expense>) {
+    setExpenses((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+    dbUpdateExpense(id, patch).catch(logErr);
+  }
+
+  function handleDeleteExpense(id: string) {
+    setExpenses((prev) => prev.filter((e) => e.id !== id));
+    dbDeleteExpense(id).catch(logErr);
+  }
+
   async function handleSignOut() {
     try {
       await getSupabase().auth.signOut();
@@ -516,6 +564,18 @@ export default function Planner({ session }: Props) {
               ].join(" ")}
             >
               Календарь
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("finance")}
+              className={[
+                "rounded-lg px-5 py-2 text-sm font-medium transition",
+                view === "finance"
+                  ? "bg-blue-500 text-white shadow-sm"
+                  : "text-zinc-600 hover:bg-orange-100 hover:text-orange-700 dark:text-zinc-400 dark:hover:bg-orange-950/40 dark:hover:text-orange-300",
+              ].join(" ")}
+            >
+              Финансы
             </button>
             <button
               type="button"
@@ -595,7 +655,16 @@ export default function Planner({ session }: Props) {
         </div>
       )}
 
-      {view === "reminders" ? (
+      {view === "finance" ? (
+        <ExpensesView
+          expenses={expenses}
+          onAdd={handleAddExpense}
+          onAddBulk={handleAddExpensesBulk}
+          onUpdate={handleUpdateExpense}
+          onDelete={handleDeleteExpense}
+          generateId={generateId}
+        />
+      ) : view === "reminders" ? (
         <div className="mx-auto max-w-2xl">
           <AnniversariesWidget
             anniversaries={anniversaries}
