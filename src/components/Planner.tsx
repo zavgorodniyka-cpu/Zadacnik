@@ -238,6 +238,47 @@ export default function Planner({ session }: Props) {
     if (hydrated) saveSettings(notifySettings);
   }, [notifySettings, hydrated]);
 
+  // Background refresh: pull latest from Supabase on tab focus and every 30s.
+  // Catches new tasks created externally (e.g. from the Telegram bot).
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+
+    async function refetchAll() {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      try {
+        const [tR, aR, fR, iR, exR] = await Promise.allSettled([
+          fetchTasks(),
+          fetchAnniversaries(),
+          fetchFolders(),
+          fetchIdeas(),
+          fetchExpenses(),
+        ]);
+        if (cancelled) return;
+        if (tR.status === "fulfilled") setTasks(tR.value);
+        if (aR.status === "fulfilled") setAnniversaries(aR.value);
+        if (fR.status === "fulfilled") setFolders(fR.value);
+        if (iR.status === "fulfilled") setIdeas(iR.value);
+        if (exR.status === "fulfilled") setExpenses(exR.value);
+      } catch (err) {
+        logErr(err);
+      }
+    }
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") refetchAll();
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const intervalId = setInterval(refetchAll, 30_000);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      clearInterval(intervalId);
+    };
+  }, [hydrated]);
+
   useEffect(() => {
     if (!hydrated || !notifySettings.enabled) return;
     let cleanup = scheduleNotifications(tasks, anniversaries, notifySettings);
