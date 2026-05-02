@@ -104,6 +104,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // If user gave a time but no day, anchor to today (or tomorrow if already past).
+  // Vercel runs in UTC, so resolve "today" in the owner's timezone (default Moscow).
+  let dueDate = parsed.dueDate;
+  if (!dueDate && parsed.dueTime) {
+    const tz = process.env.OWNER_TIMEZONE || "Europe/Moscow";
+    const fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    const parts = Object.fromEntries(
+      fmt.formatToParts(new Date()).map((p) => [p.type, p.value]),
+    );
+    let y = Number(parts.year);
+    let mo = Number(parts.month);
+    let d = Number(parts.day);
+    const nowH = Number(parts.hour);
+    const nowM = Number(parts.minute);
+    const [h, m] = parsed.dueTime.split(":").map(Number);
+    if (h * 60 + m <= nowH * 60 + nowM) {
+      const next = new Date(Date.UTC(y, mo - 1, d + 1));
+      y = next.getUTCFullYear();
+      mo = next.getUTCMonth() + 1;
+      d = next.getUTCDate();
+    }
+    dueDate = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+
   const supabase = getSupabaseAdmin();
   const id = generateId();
   const { error } = await supabase.from("tasks").insert({
@@ -111,7 +143,7 @@ export async function POST(req: Request) {
     user_id: ownerUserId,
     title: parsed.title,
     status: "todo",
-    due_date: parsed.dueDate ?? null,
+    due_date: dueDate ?? null,
     due_time: parsed.dueTime ?? null,
     end_time: parsed.endTime ?? null,
     tags: [],
@@ -126,7 +158,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  const datePart = parsed.dueDate ? ` 📅 ${ruDate(parsed.dueDate)}` : "";
+  const datePart = dueDate ? ` 📅 ${ruDate(dueDate)}` : "";
   const timePart = parsed.dueTime
     ? ` ⏰ ${parsed.dueTime}${parsed.endTime ? `–${parsed.endTime}` : ""}`
     : "";
