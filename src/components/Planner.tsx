@@ -798,6 +798,7 @@ export default function Planner({ session }: Props) {
               onSearchChange={setSearch}
               onAdd={handleQuickAdd}
               onToggle={handleToggle}
+              onEdit={handleEdit}
               onDelete={handleDelete}
               onSchedule={handleSchedule}
               onTogglePriority={handleTogglePriority}

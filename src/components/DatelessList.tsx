@@ -16,6 +16,7 @@ type Props = {
   onSearchChange: (s: string) => void;
   onAdd: (title: string) => void;
   onToggle: (id: string) => void;
+  onEdit: (task: Task) => void;
   onDelete: (id: string) => void;
   onSchedule: (id: string, dueDate: string) => void;
   onTogglePriority: (id: string) => void;
@@ -30,6 +31,7 @@ export default function DatelessList({
   onSearchChange,
   onAdd,
   onToggle,
+  onEdit,
   onDelete,
   onSchedule,
   onTogglePriority,
@@ -105,6 +107,7 @@ export default function DatelessList({
               task={t}
               reminderDefaults={reminderDefaults}
               onToggle={onToggle}
+              onEdit={onEdit}
               onDelete={onDelete}
               onSchedule={onSchedule}
               onTogglePriority={onTogglePriority}
@@ -121,6 +124,7 @@ function Row({
   task,
   reminderDefaults,
   onToggle,
+  onEdit,
   onDelete,
   onSchedule,
   onTogglePriority,
@@ -129,6 +133,7 @@ function Row({
   task: Task;
   reminderDefaults: { mode: ReminderMode; time: string };
   onToggle: (id: string) => void;
+  onEdit: (task: Task) => void;
   onDelete: (id: string) => void;
   onSchedule: (id: string, dueDate: string) => void;
   onTogglePriority: (id: string) => void;
@@ -156,7 +161,12 @@ function Row({
         )}
       </button>
 
-      <div className="flex-1 min-w-0">
+      <button
+        type="button"
+        onClick={() => onEdit(task)}
+        className="flex-1 min-w-0 text-left"
+        aria-label={`Открыть задачу: ${task.title}`}
+      >
         <span
           className={[
             "block truncate text-sm",
@@ -191,6 +201,11 @@ function Row({
               )}
             </span>
           )}
+          {task.description && (
+            <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+              💬
+            </span>
+          )}
           {task.tags.map((tag) => (
             <TagPill key={tag} tag={tag} muted={done} />
           ))}
@@ -200,7 +215,7 @@ function Row({
             </span>
           )}
         </div>
-      </div>
+      </button>
 
       <PriorityFlag
         isHigh={task.priority === "high"}
