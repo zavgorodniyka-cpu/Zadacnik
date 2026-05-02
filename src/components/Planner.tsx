@@ -101,6 +101,10 @@ export default function Planner({ session }: Props) {
   const [notifySettings, setNotifySettings] = useState<NotificationSettings>(
     () => ({ enabled: false }),
   );
+  const [undoToast, setUndoToast] = useState<
+    | { id: string; title: string; previousStatus: Task["status"] }
+    | null
+  >(null);
 
   const reminderDefaults = REMINDER_DEFAULTS;
 
@@ -237,6 +241,13 @@ export default function Planner({ session }: Props) {
   useEffect(() => {
     if (hydrated) saveSettings(notifySettings);
   }, [notifySettings, hydrated]);
+
+  // Auto-hide undo toast after 5 seconds.
+  useEffect(() => {
+    if (!undoToast) return;
+    const timer = setTimeout(() => setUndoToast(null), 5000);
+    return () => clearTimeout(timer);
+  }, [undoToast]);
 
   // Background refresh: pull latest from Supabase on tab focus and every 30s.
   // Catches new tasks created externally (e.g. from the Telegram bot).
@@ -484,6 +495,21 @@ export default function Planner({ session }: Props) {
       prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t)),
     );
     dbUpdateTask(id, { status: newStatus }).catch(logErr);
+    if (newStatus === "done") {
+      setUndoToast({ id, title: current.title, previousStatus: current.status });
+    } else {
+      setUndoToast(null);
+    }
+  }
+
+  function handleUndoToggle() {
+    if (!undoToast) return;
+    const { id, previousStatus } = undoToast;
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status: previousStatus } : t)),
+    );
+    dbUpdateTask(id, { status: previousStatus }).catch(logErr);
+    setUndoToast(null);
   }
 
   function handleTogglePriority(id: string) {
@@ -795,6 +821,26 @@ export default function Planner({ session }: Props) {
               onSlotClick={handleSlotClick}
             />
           </div>
+        </div>
+      )}
+
+      {undoToast && (
+        <div
+          role="status"
+          className="fixed inset-x-0 bottom-4 z-50 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-3 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          <span className="flex items-center gap-2 text-zinc-700 dark:text-zinc-200">
+            <span className="text-emerald-600 dark:text-emerald-400">✓</span>
+            <span className="max-w-[200px] truncate">{undoToast.title}</span>
+            <span className="text-zinc-500 dark:text-zinc-400">— готово</span>
+          </span>
+          <button
+            type="button"
+            onClick={handleUndoToggle}
+            className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          >
+            Отмена
+          </button>
         </div>
       )}
     </div>

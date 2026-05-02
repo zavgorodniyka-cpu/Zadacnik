@@ -158,14 +158,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  const datePart = dueDate ? ` 📅 ${ruDate(dueDate)}` : "";
-  const timePart = parsed.dueTime
-    ? ` ⏰ ${parsed.dueTime}${parsed.endTime ? `–${parsed.endTime}` : ""}`
-    : "";
-  await sendTelegramMessage(
-    chatId,
-    `✅ Создал задачу: ${parsed.title}${datePart}${timePart}`,
-  );
+  const whenParts: string[] = [];
+  if (dueDate) whenParts.push(ruDate(dueDate));
+  if (parsed.dueTime) {
+    whenParts.push(
+      `в ${parsed.dueTime}${parsed.endTime ? `–${parsed.endTime}` : ""}`,
+    );
+  }
+  const when = whenParts.length > 0 ? `\nКогда: ${whenParts.join(", ")}` : "";
+  await sendTelegramMessage(chatId, `✅ Создал задачу: ${parsed.title}${when}`);
 
   return NextResponse.json({ ok: true, id });
 }
