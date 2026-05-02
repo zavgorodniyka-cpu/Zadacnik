@@ -101,10 +101,7 @@ export default function Planner({ session }: Props) {
   const [notifySettings, setNotifySettings] = useState<NotificationSettings>(
     () => ({ enabled: false }),
   );
-  const [undoToast, setUndoToast] = useState<
-    | { id: string; title: string; previousStatus: Task["status"] }
-    | null
-  >(null);
+  const [confirmDone, setConfirmDone] = useState<Task | null>(null);
 
   const reminderDefaults = REMINDER_DEFAULTS;
 
@@ -242,12 +239,6 @@ export default function Planner({ session }: Props) {
     if (hydrated) saveSettings(notifySettings);
   }, [notifySettings, hydrated]);
 
-  // Auto-hide undo toast after 5 seconds.
-  useEffect(() => {
-    if (!undoToast) return;
-    const timer = setTimeout(() => setUndoToast(null), 5000);
-    return () => clearTimeout(timer);
-  }, [undoToast]);
 
   // Background refresh: pull latest from Supabase on tab focus and every 30s.
   // Catches new tasks created externally (e.g. from the Telegram bot).
@@ -490,26 +481,26 @@ export default function Planner({ session }: Props) {
   function handleToggle(id: string) {
     const current = tasks.find((t) => t.id === id);
     if (!current) return;
-    const newStatus = current.status === "done" ? "todo" : "done";
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t)),
-    );
-    dbUpdateTask(id, { status: newStatus }).catch(logErr);
-    if (newStatus === "done") {
-      setUndoToast({ id, title: current.title, previousStatus: current.status });
-    } else {
-      setUndoToast(null);
+    if (current.status !== "done") {
+      // Confirm before marking done — guards against accidental taps.
+      setConfirmDone(current);
+      return;
     }
+    // Un-marking is reversible enough; do it instantly.
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status: "todo" } : t)),
+    );
+    dbUpdateTask(id, { status: "todo" }).catch(logErr);
   }
 
-  function handleUndoToggle() {
-    if (!undoToast) return;
-    const { id, previousStatus } = undoToast;
+  function confirmMarkDone() {
+    if (!confirmDone) return;
+    const id = confirmDone.id;
     setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status: previousStatus } : t)),
+      prev.map((t) => (t.id === id ? { ...t, status: "done" } : t)),
     );
-    dbUpdateTask(id, { status: previousStatus }).catch(logErr);
-    setUndoToast(null);
+    dbUpdateTask(id, { status: "done" }).catch(logErr);
+    setConfirmDone(null);
   }
 
   function handleTogglePriority(id: string) {
@@ -824,23 +815,41 @@ export default function Planner({ session }: Props) {
         </div>
       )}
 
-      {undoToast && (
+      {confirmDone && (
         <div
-          role="status"
-          className="fixed inset-x-0 bottom-4 z-50 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-3 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setConfirmDone(null)}
         >
-          <span className="flex items-center gap-2 text-zinc-700 dark:text-zinc-200">
-            <span className="text-emerald-600 dark:text-emerald-400">✓</span>
-            <span className="max-w-[200px] truncate">{undoToast.title}</span>
-            <span className="text-zinc-500 dark:text-zinc-400">— готово</span>
-          </span>
-          <button
-            type="button"
-            onClick={handleUndoToggle}
-            className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          <div
+            className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
           >
-            Отмена
-          </button>
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+              Отметить как выполненную?
+            </h2>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              «{confirmDone.title}»
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDone(null)}
+                className="flex-1 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={confirmMarkDone}
+                autoFocus
+                className="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700"
+              >
+                Готово
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
