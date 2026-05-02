@@ -560,91 +560,91 @@ export default function Planner({ session }: Props) {
     );
   }
 
+  const tabs: Array<{ id: View; label: string }> = [
+    { id: "calendar", label: "Календарь" },
+    { id: "finance", label: "Финансы" },
+    { id: "reminders", label: "Напоминания" },
+    { id: "ideas", label: "Идеи" },
+  ];
+
+  const tabClass = (active: boolean) =>
+    [
+      "flex-shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition sm:px-5",
+      active
+        ? "bg-blue-500 text-white shadow-sm"
+        : "text-zinc-600 hover:bg-orange-100 hover:text-orange-700 dark:text-zinc-400 dark:hover:bg-orange-950/40 dark:hover:text-orange-300",
+    ].join(" ");
+
+  const signOutBtn = (
+    <button
+      type="button"
+      onClick={handleSignOut}
+      title={`Выйти — ${userEmail}`}
+      aria-label="Выйти"
+      className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+    >
+      <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10 3h2.5a.5.5 0 01.5.5v9a.5.5 0 01-.5.5H10M7 5l-3 3 3 3M4 8h7" />
+      </svg>
+    </button>
+  );
+
+  const addBtn = (compact: boolean) => (
+    <button
+      type="button"
+      onClick={() => setFormOpen(true)}
+      aria-label="Добавить"
+      className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 sm:px-4"
+    >
+      <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M8 3v10M3 8h10" />
+      </svg>
+      {!compact && <span>Добавить</span>}
+    </button>
+  );
+
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:py-12">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-4">
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:py-12">
+      <header className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
             Задачник
           </h1>
-          <nav className="flex items-center gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-900">
-            <button
-              type="button"
-              onClick={() => setView("calendar")}
-              className={[
-                "rounded-lg px-5 py-2 text-sm font-medium transition",
-                view === "calendar"
-                  ? "bg-blue-500 text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-orange-100 hover:text-orange-700 dark:text-zinc-400 dark:hover:bg-orange-950/40 dark:hover:text-orange-300",
-              ].join(" ")}
-            >
-              Календарь
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("finance")}
-              className={[
-                "rounded-lg px-5 py-2 text-sm font-medium transition",
-                view === "finance"
-                  ? "bg-blue-500 text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-orange-100 hover:text-orange-700 dark:text-zinc-400 dark:hover:bg-orange-950/40 dark:hover:text-orange-300",
-              ].join(" ")}
-            >
-              Финансы
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("reminders")}
-              className={[
-                "rounded-lg px-5 py-2 text-sm font-medium transition",
-                view === "reminders"
-                  ? "bg-blue-500 text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-orange-100 hover:text-orange-700 dark:text-zinc-400 dark:hover:bg-orange-950/40 dark:hover:text-orange-300",
-              ].join(" ")}
-            >
-              Напоминания
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("ideas")}
-              className={[
-                "rounded-lg px-5 py-2 text-sm font-medium transition",
-                view === "ideas"
-                  ? "bg-blue-500 text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-orange-100 hover:text-orange-700 dark:text-zinc-400 dark:hover:bg-orange-950/40 dark:hover:text-orange-300",
-              ].join(" ")}
-            >
-              Идеи
-            </button>
-          </nav>
+          <div className="flex items-center gap-1.5 sm:hidden">
+            <NotificationsButton
+              settings={notifySettings}
+              onChange={setNotifySettings}
+            />
+            {signOutBtn}
+            {addBtn(true)}
+          </div>
         </div>
-        <div className="flex flex-1 items-center justify-end gap-2">
+
+        <nav className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:overflow-visible sm:px-0">
+          <div className="inline-flex items-center gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-900">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setView(t.id)}
+                className={tabClass(view === t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        <div className="flex flex-1 items-center gap-2 sm:justify-end">
           <QuickAdd inputRef={quickAddRef} onCreate={handleSmartCreate} />
-          <NotificationsButton
-            settings={notifySettings}
-            onChange={setNotifySettings}
-          />
-          <button
-            type="button"
-            onClick={handleSignOut}
-            title={`Выйти — ${userEmail}`}
-            aria-label="Выйти"
-            className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
-          >
-            <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M10 3h2.5a.5.5 0 01.5.5v9a.5.5 0 01-.5.5H10M7 5l-3 3 3 3M4 8h7" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            onClick={() => setFormOpen(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8 3v10M3 8h10" />
-            </svg>
-            Добавить
-          </button>
+          <div className="hidden sm:flex sm:items-center sm:gap-2">
+            <NotificationsButton
+              settings={notifySettings}
+              onChange={setNotifySettings}
+            />
+            {signOutBtn}
+            {addBtn(false)}
+          </div>
         </div>
       </header>
 
@@ -703,8 +703,8 @@ export default function Planner({ session }: Props) {
           generateId={generateId}
         />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr] lg:items-start">
-          <div className="space-y-4">
+        <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[1.6fr_1fr] lg:items-start">
+          <div className="lg:col-start-1 lg:row-start-1">
             <Calendar
               tasks={filteredTasks}
               anniversaries={anniversaries}
@@ -714,6 +714,8 @@ export default function Planner({ session }: Props) {
                 setEditingTask(null);
               }}
             />
+          </div>
+          <div className="lg:col-start-1 lg:row-start-2">
             <TaskList
               tasks={filteredTasks}
               selectedDate={selectedDate}
@@ -725,16 +727,11 @@ export default function Planner({ session }: Props) {
               onSnooze={handleSchedule}
               onSetReminder={handleSetReminder}
             />
-            <DayTimeline
-              tasks={filteredTasks}
-              selectedDate={selectedDate}
-              onTaskClick={handleEdit}
-              onSlotClick={handleSlotClick}
-            />
           </div>
-
-          <div className="space-y-4">
+          <div className="lg:col-start-2 lg:row-start-1">
             <UpcomingList tasks={upcoming} onSelectDate={setSelectedDate} />
+          </div>
+          <div className="lg:col-start-2 lg:row-start-2">
             <DatelessList
               tasks={allTasks}
               reminderDefaults={reminderDefaults}
@@ -747,6 +744,14 @@ export default function Planner({ session }: Props) {
               onSchedule={handleSchedule}
               onTogglePriority={handleTogglePriority}
               onSetReminder={handleSetReminder}
+            />
+          </div>
+          <div className="hidden lg:col-start-1 lg:row-start-3 lg:block">
+            <DayTimeline
+              tasks={filteredTasks}
+              selectedDate={selectedDate}
+              onTaskClick={handleEdit}
+              onSlotClick={handleSlotClick}
             />
           </div>
         </div>

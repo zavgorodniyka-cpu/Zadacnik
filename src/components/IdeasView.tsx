@@ -238,36 +238,35 @@ function FolderSidebar({
                   onCancel={() => setEditingId(null)}
                 />
               ) : (
-                <button
-                  type="button"
-                  onClick={() => onSelect(f.id)}
-                  onDoubleClick={() => setEditingId(f.id)}
-                  className={[
-                    "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition",
-                    selectedFolderId === f.id
-                      ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-50"
-                      : "text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-900",
-                  ].join(" ")}
-                >
-                  <span className="flex-none text-base">{f.emoji ?? "📁"}</span>
-                  <span className="flex-1 truncate text-sm">{f.name}</span>
-                  <span className="flex-none text-[11px] text-zinc-400 dark:text-zinc-600">
-                    {counts.get(f.id) ?? 0}
-                  </span>
+                <div className="group relative">
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingId(f.id);
-                    }}
+                    onClick={() => onSelect(f.id)}
+                    onDoubleClick={() => setEditingId(f.id)}
+                    className={[
+                      "flex w-full items-center gap-2 rounded-lg py-1.5 pl-2 pr-9 text-left transition",
+                      selectedFolderId === f.id
+                        ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-50"
+                        : "text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-900",
+                    ].join(" ")}
+                  >
+                    <span className="flex-none text-base">{f.emoji ?? "📁"}</span>
+                    <span className="flex-1 truncate text-sm">{f.name}</span>
+                    <span className="flex-none text-[11px] text-zinc-400 dark:text-zinc-600">
+                      {counts.get(f.id) ?? 0}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingId(f.id)}
                     aria-label="Редактировать папку"
-                    className="rounded p-0.5 text-zinc-400 opacity-0 transition hover:bg-zinc-200 hover:text-zinc-900 group-hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-zinc-400 opacity-0 transition hover:bg-zinc-200 hover:text-zinc-900 group-hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
                   >
                     <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M11 2l3 3-9 9H2v-3z" />
                     </svg>
                   </button>
-                </button>
+                </div>
               )}
             </li>
           ))}

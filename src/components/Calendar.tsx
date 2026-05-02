@@ -56,7 +56,7 @@ export default function Calendar({ tasks, anniversaries, selectedDate, onSelectD
   }
 
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 sm:p-4">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
           {RU_MONTHS[view.month]} {view.year}
@@ -134,7 +134,7 @@ export default function Calendar({ tasks, anniversaries, selectedDate, onSelectD
               onClick={() => onSelectDate(iso)}
               title={holiday}
               className={[
-                "relative flex h-20 flex-col items-center justify-center rounded-lg border text-base transition",
+                "relative flex h-12 flex-col items-center justify-center rounded-lg border text-sm transition sm:h-20 sm:text-base",
                 inMonth
                   ? "text-zinc-900 dark:text-zinc-100"
                   : "text-zinc-400 dark:text-zinc-600",

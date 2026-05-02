@@ -38,7 +38,7 @@ export default function QuickAdd({ onCreate, inputRef }: Props) {
   }
 
   return (
-    <form onSubmit={submit} className="relative w-full max-w-xs">
+    <form onSubmit={submit} className="relative w-full sm:max-w-xs">
       <div className="flex items-center rounded-lg border border-zinc-200 bg-white shadow-sm transition focus-within:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:focus-within:border-zinc-50">
         <span className="pl-3 pr-1 text-zinc-400">
           <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
