@@ -238,23 +238,13 @@ export default function ExpensesView({
               : "Под фильтр ничего не попало."}
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-zinc-50 text-left text-xs font-medium text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-                <tr>
-                  <th className="px-4 py-2">Дата</th>
-                  <th className="px-4 py-2">Категория</th>
-                  <th className="px-4 py-2">Подкатегория</th>
-                  <th className="px-4 py-2">Описание</th>
-                  <th className="px-4 py-2 text-right">Сумма</th>
-                  <th className="w-12"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((e) =>
-                  editingId === e.id ? (
-                    <ExpenseEditRow
-                      key={e.id}
+          <>
+            {/* Mobile: cards */}
+            <ul className="divide-y divide-zinc-100 dark:divide-zinc-800/60 sm:hidden">
+              {filtered.map((e) =>
+                editingId === e.id ? (
+                  <li key={e.id} className="bg-zinc-50 px-4 py-3 dark:bg-zinc-900">
+                    <ExpenseInlineEdit
                       expense={e}
                       categories={categories}
                       onSave={(patch) => {
@@ -267,28 +257,104 @@ export default function ExpensesView({
                       }}
                       onCancel={() => setEditingId(null)}
                     />
-                  ) : (
-                    <ExpenseRow
-                      key={e.id}
-                      expense={e}
-                      onEdit={() => setEditingId(e.id)}
-                    />
-                  ),
-                )}
-              </tbody>
-              <tfoot className="bg-zinc-50 font-medium text-zinc-900 dark:bg-zinc-900 dark:text-zinc-50">
-                <tr>
-                  <td colSpan={4} className="px-4 py-3 text-right text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                    Итого
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-base tabular-nums">
-                    {RUB.format(total)}
-                  </td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+                  </li>
+                ) : (
+                  <li key={e.id}>
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(e.id)}
+                      className="flex w-full flex-col gap-1 px-4 py-3 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                    >
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                          {formatDate(e.date)}
+                        </span>
+                        <span className="font-mono text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                          {RUB.format(e.amount)}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                        <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                          {e.category}
+                        </span>
+                        {e.subcategory && (
+                          <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                            · {e.subcategory}
+                          </span>
+                        )}
+                      </div>
+                      {e.description && (
+                        <p className="text-xs text-zinc-500 dark:text-zinc-500">
+                          {e.description}
+                        </p>
+                      )}
+                    </button>
+                  </li>
+                ),
+              )}
+              <li className="flex items-baseline justify-between bg-zinc-50 px-4 py-3 dark:bg-zinc-900">
+                <span className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                  Итого
+                </span>
+                <span className="font-mono text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
+                  {RUB.format(total)}
+                </span>
+              </li>
+            </ul>
+
+            {/* Desktop: table */}
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full text-sm">
+                <thead className="bg-zinc-50 text-left text-xs font-medium text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+                  <tr>
+                    <th className="px-4 py-2">Дата</th>
+                    <th className="px-4 py-2">Категория</th>
+                    <th className="px-4 py-2">Подкатегория</th>
+                    <th className="px-4 py-2">Описание</th>
+                    <th className="px-4 py-2 text-right">Сумма</th>
+                    <th className="w-12"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((e) =>
+                    editingId === e.id ? (
+                      <ExpenseEditRow
+                        key={e.id}
+                        expense={e}
+                        categories={categories}
+                        onSave={(patch) => {
+                          onUpdate(e.id, patch);
+                          setEditingId(null);
+                        }}
+                        onDelete={() => {
+                          onDelete(e.id);
+                          setEditingId(null);
+                        }}
+                        onCancel={() => setEditingId(null)}
+                      />
+                    ) : (
+                      <ExpenseRow
+                        key={e.id}
+                        expense={e}
+                        onEdit={() => setEditingId(e.id)}
+                      />
+                    ),
+                  )}
+                </tbody>
+                <tfoot className="bg-zinc-50 font-medium text-zinc-900 dark:bg-zinc-900 dark:text-zinc-50">
+                  <tr>
+                    <td colSpan={4} className="px-4 py-3 text-right text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Итого
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-base tabular-nums">
+                      {RUB.format(total)}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -557,6 +623,95 @@ function ExpenseEditRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+function ExpenseInlineEdit({
+  expense,
+  categories,
+  onSave,
+  onDelete,
+  onCancel,
+}: {
+  expense: Expense;
+  categories: string[];
+  onSave: (patch: Partial<Expense>) => void;
+  onDelete: () => void;
+  onCancel: () => void;
+}) {
+  const [date, setDate] = useState(expense.date);
+  const [category, setCategory] = useState(expense.category);
+  const [subcategory, setSubcategory] = useState(expense.subcategory ?? "");
+  const [description, setDescription] = useState(expense.description ?? "");
+  const [amount, setAmount] = useState(String(expense.amount));
+
+  function save(e: React.FormEvent) {
+    e.preventDefault();
+    const cat = category.trim();
+    const amt = parseFloat(amount.replace(/[^\d.,]/g, "").replace(",", "."));
+    if (!cat || !Number.isFinite(amt) || amt <= 0) return;
+    onSave({
+      date,
+      category: cat,
+      subcategory: subcategory.trim() || undefined,
+      description: description.trim() || undefined,
+      amount: amt,
+    });
+  }
+
+  const inputCls =
+    "w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50";
+  const labelCls =
+    "mb-0.5 block text-[11px] font-medium text-zinc-600 dark:text-zinc-400";
+
+  return (
+    <form onSubmit={save} className="space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className={labelCls}>Дата</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className={labelCls}>Сумма ₽</label>
+          <input type="text" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} />
+        </div>
+      </div>
+      <div>
+        <label className={labelCls}>Категория</label>
+        <input type="text" value={category} onChange={(e) => setCategory(e.target.value)} list="expense-categories" className={inputCls} />
+        <datalist id="expense-categories">
+          {categories.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+      </div>
+      <div>
+        <label className={labelCls}>Подкатегория</label>
+        <input type="text" value={subcategory} onChange={(e) => setSubcategory(e.target.value)} className={inputCls} />
+      </div>
+      <div>
+        <label className={labelCls}>Описание</label>
+        <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} />
+      </div>
+      <div className="flex items-center gap-2 pt-1">
+        <button type="submit" className="flex-1 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200">
+          Сохранить
+        </button>
+        <button type="button" onClick={onCancel} className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-600 transition hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900">
+          Отмена
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm("Удалить расход?")) onDelete();
+          }}
+          aria-label="Удалить"
+          className="rounded-md border border-red-200 px-3 py-2 text-sm text-red-600 transition hover:bg-red-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-950/30"
+        >
+          🗑
+        </button>
+      </div>
+    </form>
   );
 }
 
