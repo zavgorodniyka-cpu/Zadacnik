@@ -132,7 +132,7 @@ export default function ExpensesView({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div>
           <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
             Финансы
@@ -178,7 +178,7 @@ export default function ExpensesView({
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr] lg:items-start">
         <ExpenseChart groups={chartGroups} formatValue={(n) => RUB.format(n)} />
 
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           <h3 className="mb-3 text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
             Добавить расход
           </h3>
@@ -190,7 +190,7 @@ export default function ExpensesView({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
           <h3 className="mr-auto text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
             Расходы — {filtered.length} {declineRows(filtered.length)}

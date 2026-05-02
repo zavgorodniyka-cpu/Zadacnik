@@ -95,7 +95,7 @@ export default function TaskForm({ defaultDate, defaultTime, editingTask, remind
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
+      className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
     >
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">

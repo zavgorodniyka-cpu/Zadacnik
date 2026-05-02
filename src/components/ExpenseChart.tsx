@@ -72,7 +72,7 @@ export default function ExpenseChart({ groups, formatValue }: Props) {
 
   if (total === 0) {
     return (
-      <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-center text-sm text-zinc-400 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-600">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-center text-sm text-zinc-400 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-600">
         Пока нет данных для диаграммы.
       </div>
     );
@@ -97,7 +97,7 @@ export default function ExpenseChart({ groups, formatValue }: Props) {
   });
 
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
           {drillGroup ? `${drillGroup.label} — детализация` : "По категориям"}

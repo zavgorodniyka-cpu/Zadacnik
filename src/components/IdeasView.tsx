@@ -140,7 +140,7 @@ function FolderSidebar({
   }
 
   return (
-    <aside className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+    <aside className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
       <div className="mb-2 flex items-center justify-between px-1">
         <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
           📂 Папки
@@ -369,7 +369,7 @@ function ItemsPanel({
   }
 
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
           <span className="text-xl">{folder.emoji ?? "📁"}</span>
