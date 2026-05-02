@@ -85,8 +85,8 @@ export default function LoginPage() {
                 pattern="[0-9]*"
                 autoComplete="one-time-code"
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="123456"
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                placeholder="код из письма"
                 required
                 autoFocus
                 disabled={status === "verifying"}
