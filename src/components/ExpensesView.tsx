@@ -397,7 +397,7 @@ function NewExpenseForm({
 
   return (
     <form onSubmit={submit} className="space-y-2">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div>
           <label className="mb-0.5 block text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
             Дата
@@ -666,7 +666,7 @@ function ExpenseInlineEdit({
 
   return (
     <form onSubmit={save} className="space-y-2">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div>
           <label className={labelCls}>Дата</label>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
