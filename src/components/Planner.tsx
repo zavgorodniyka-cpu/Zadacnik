@@ -761,8 +761,9 @@ export default function Planner({ session }: Props) {
           generateId={generateId}
         />
       ) : (
-        <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[1.6fr_1fr] lg:items-start">
-          <div className="lg:col-start-1 lg:row-start-1">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+          {/* Left column on desktop, first three blocks on mobile */}
+          <div className="flex flex-col gap-4 lg:basis-[62%]">
             <Calendar
               tasks={filteredTasks}
               anniversaries={anniversaries}
@@ -772,8 +773,6 @@ export default function Planner({ session }: Props) {
                 setEditingTask(null);
               }}
             />
-          </div>
-          <div className="lg:col-start-1 lg:row-start-2">
             <TaskList
               tasks={filteredTasks}
               selectedDate={selectedDate}
@@ -785,11 +784,19 @@ export default function Planner({ session }: Props) {
               onSnooze={handleSchedule}
               onSetReminder={handleSetReminder}
             />
+            <div className="hidden lg:block">
+              <DayTimeline
+                tasks={filteredTasks}
+                selectedDate={selectedDate}
+                onTaskClick={handleEdit}
+                onSlotClick={handleSlotClick}
+              />
+            </div>
           </div>
-          <div className="lg:col-start-2 lg:row-start-1">
+
+          {/* Right column on desktop, bottom blocks on mobile */}
+          <div className="flex flex-col gap-4 lg:basis-[38%]">
             <UpcomingList tasks={upcoming} onSelectDate={setSelectedDate} />
-          </div>
-          <div className="lg:col-start-2 lg:row-start-2">
             <DatelessList
               tasks={allTasks}
               reminderDefaults={reminderDefaults}
@@ -803,14 +810,6 @@ export default function Planner({ session }: Props) {
               onSchedule={handleSchedule}
               onTogglePriority={handleTogglePriority}
               onSetReminder={handleSetReminder}
-            />
-          </div>
-          <div className="hidden lg:col-start-1 lg:row-start-3 lg:block">
-            <DayTimeline
-              tasks={filteredTasks}
-              selectedDate={selectedDate}
-              onTaskClick={handleEdit}
-              onSlotClick={handleSlotClick}
             />
           </div>
         </div>
