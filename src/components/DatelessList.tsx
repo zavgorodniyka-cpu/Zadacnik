@@ -206,6 +206,14 @@ function Row({
               💬
             </span>
           )}
+          {task.recurringId && (
+            <span
+              className="text-[10px] text-zinc-400 dark:text-zinc-500"
+              title="Часть повторяющейся серии"
+            >
+              🔁
+            </span>
+          )}
           {task.tags.map((tag) => (
             <TagPill key={tag} tag={tag} muted={done} />
           ))}

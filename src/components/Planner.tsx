@@ -8,7 +8,7 @@ import type { Folder, IdeaItem } from "@/types/folder";
 import type { Expense } from "@/types/expense";
 import { generateId } from "@/lib/storage";
 import { todayISO } from "@/lib/dates";
-import { generateRecurringTasks } from "@/lib/recurring";
+import { generateRecurringTasks, generateRecurrenceInstances, type Recurrence } from "@/lib/recurring";
 import { loadTasks as loadTasksLocal } from "@/lib/storage";
 import { loadAnniversaries as loadAnniversariesLocal } from "@/lib/anniversaries";
 import {
@@ -394,6 +394,7 @@ export default function Planner({ session }: Props) {
     tags: string[];
     subtasks: Subtask[];
     reminder: Reminder | undefined;
+    recurrence: Recurrence;
   }) {
     if (editingTask) {
       const id = editingTask.id;
@@ -413,26 +414,61 @@ export default function Planner({ session }: Props) {
       );
       setEditingTask(null);
       dbUpdateTask(id, patch).catch(logErr);
-    } else {
-      const newTask: Task = {
-        id: generateId(),
+      return;
+    }
+
+    if (data.recurrence.kind !== "none") {
+      const series = generateRecurrenceInstances(data.dueDate, data.recurrence, {
         title: data.title,
         description: data.description || undefined,
-        status: "todo",
-        priority: data.priority,
-        dueDate: data.dueDate,
         dueTime: data.dueTime || undefined,
         endTime: data.endTime || undefined,
+        priority: data.priority,
         tags: data.tags,
         subtasks: data.subtasks.length > 0 ? data.subtasks : undefined,
         reminder: data.reminder,
-        source: "internal",
-        createdAt: new Date().toISOString(),
-      };
-      setTasks((prev) => [...prev, newTask]);
-      setSelectedDate(data.dueDate);
-      dbInsertTask(newTask).catch(logErr);
+      });
+      if (series.length > 0) {
+        setTasks((prev) => [...prev, ...series]);
+        setSelectedDate(series[0].dueDate ?? data.dueDate);
+        bulkInsertTasks(series).catch(logErr);
+        return;
+      }
+      // If no instances were generated (e.g. weekly with 0 days), fall through.
     }
+
+    const newTask: Task = {
+      id: generateId(),
+      title: data.title,
+      description: data.description || undefined,
+      status: "todo",
+      priority: data.priority,
+      dueDate: data.dueDate,
+      dueTime: data.dueTime || undefined,
+      endTime: data.endTime || undefined,
+      tags: data.tags,
+      subtasks: data.subtasks.length > 0 ? data.subtasks : undefined,
+      reminder: data.reminder,
+      source: "internal",
+      createdAt: new Date().toISOString(),
+    };
+    setTasks((prev) => [...prev, newTask]);
+    setSelectedDate(data.dueDate);
+    dbInsertTask(newTask).catch(logErr);
+  }
+
+  function handleDeleteSeries(recurringId: string) {
+    const ids = tasks
+      .filter((t) => t.recurringId === recurringId)
+      .map((t) => t.id);
+    if (ids.length === 0) return;
+    setTasks((prev) => prev.filter((t) => t.recurringId !== recurringId));
+    setEditingTask(null);
+    Promise.allSettled(ids.map((id) => dbDeleteTask(id))).then((results) => {
+      results.forEach((r) => {
+        if (r.status === "rejected") logErr(r.reason);
+      });
+    });
   }
 
   function handleSchedule(id: string, dueDate: string) {
@@ -723,6 +759,7 @@ export default function Planner({ session }: Props) {
             editingTask={editingTask}
             reminderDefaults={reminderDefaults}
             onSubmit={handleSubmit}
+            onDeleteSeries={handleDeleteSeries}
             onClose={closeForm}
           />
         </div>

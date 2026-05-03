@@ -1,6 +1,85 @@
-import type { Task } from "@/types/task";
+import type { Reminder, Subtask, Task } from "@/types/task";
 import { toISODate } from "./dates";
 import { generateId } from "./storage";
+
+export type RecurrenceKind = "none" | "daily" | "weekdays" | "weekly" | "monthly";
+
+export type Recurrence = {
+  kind: RecurrenceKind;
+  weekdays?: number[]; // 0=Sun..6=Sat, used when kind="weekly"
+};
+
+export const WEEKDAY_LABELS_RU = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+
+const HORIZON_WEEKS = 12;
+const HORIZON_MONTHS = 6;
+
+type BaseTaskFields = {
+  title: string;
+  description?: string;
+  dueTime?: string;
+  endTime?: string;
+  priority?: "high";
+  tags: string[];
+  subtasks?: Subtask[];
+  reminder?: Reminder;
+};
+
+export function generateRecurrenceInstances(
+  startDateIso: string,
+  recurrence: Recurrence,
+  base: BaseTaskFields,
+): Task[] {
+  if (recurrence.kind === "none") return [];
+  const recurringId = generateId();
+  const createdAt = new Date().toISOString();
+  const [y, m, d] = startDateIso.split("-").map(Number);
+  const start = new Date(y, m - 1, d);
+  const out: Task[] = [];
+
+  function pushOn(date: Date) {
+    out.push({
+      id: generateId(),
+      title: base.title,
+      description: base.description,
+      status: "todo",
+      priority: base.priority,
+      dueDate: toISODate(date),
+      dueTime: base.dueTime,
+      endTime: base.endTime,
+      reminder: base.reminder,
+      tags: [...base.tags],
+      subtasks: base.subtasks,
+      source: "internal",
+      recurringId,
+      createdAt,
+    });
+  }
+
+  if (recurrence.kind === "monthly") {
+    for (let i = 0; i < HORIZON_MONTHS; i++) {
+      const cand = new Date(start.getFullYear(), start.getMonth() + i, start.getDate());
+      // Skip if rolled over (e.g. Jan 31 + 1 month → Mar 3 in JS)
+      if (cand.getDate() !== start.getDate()) continue;
+      pushOn(cand);
+    }
+    return out;
+  }
+
+  let targetDays: number[];
+  if (recurrence.kind === "daily") targetDays = [0, 1, 2, 3, 4, 5, 6];
+  else if (recurrence.kind === "weekdays") targetDays = [1, 2, 3, 4, 5];
+  else targetDays = recurrence.weekdays ?? [];
+
+  if (targetDays.length === 0) return [];
+
+  for (let i = 0; i < HORIZON_WEEKS * 7; i++) {
+    const cand = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    if (!targetDays.includes(cand.getDay())) continue;
+    pushOn(cand);
+  }
+  return out;
+}
 
 type RecurringTemplate = {
   recurringId: string;

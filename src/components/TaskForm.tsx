@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import type { Reminder, ReminderMode, Subtask, Task } from "@/types/task";
+import type { Recurrence, RecurrenceKind } from "@/lib/recurring";
+import { WEEKDAY_LABELS_RU } from "@/lib/recurring";
 import SubtaskEditor from "./SubtaskEditor";
 
 type Props = {
@@ -19,9 +21,13 @@ type Props = {
     tags: string[];
     subtasks: Subtask[];
     reminder: Reminder | undefined;
+    recurrence: Recurrence;
   }) => void;
+  onDeleteSeries?: (recurringId: string) => void;
   onClose: () => void;
 };
+
+const RU_WEEKDAY_ORDER: number[] = [1, 2, 3, 4, 5, 6, 0]; // Mon..Sun
 
 function parseTagsInput(input: string): string[] {
   return input
@@ -30,7 +36,7 @@ function parseTagsInput(input: string): string[] {
     .filter(Boolean);
 }
 
-export default function TaskForm({ defaultDate, defaultTime, editingTask, reminderDefaults, onSubmit, onClose }: Props) {
+export default function TaskForm({ defaultDate, defaultTime, editingTask, reminderDefaults, onSubmit, onDeleteSeries, onClose }: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState(defaultDate);
@@ -40,8 +46,11 @@ export default function TaskForm({ defaultDate, defaultTime, editingTask, remind
   const [tagsInput, setTagsInput] = useState("");
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [reminder, setReminder] = useState<Reminder | undefined>(undefined);
+  const [recurrenceKind, setRecurrenceKind] = useState<RecurrenceKind>("none");
+  const [recurrenceWeekdays, setRecurrenceWeekdays] = useState<number[]>([]);
 
   const isEditing = !!editingTask;
+  const isPartOfSeries = !!editingTask?.recurringId;
 
   useEffect(() => {
     if (editingTask) {
@@ -65,12 +74,21 @@ export default function TaskForm({ defaultDate, defaultTime, editingTask, remind
       setSubtasks([]);
       setReminder(undefined);
     }
+    // Recurrence resets every time the form is reused.
+    setRecurrenceKind("none");
+    setRecurrenceWeekdays([]);
   }, [editingTask, defaultDate, defaultTime]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = title.trim();
     if (!trimmed) return;
+    const recurrence: Recurrence =
+      isEditing
+        ? { kind: "none" }
+        : recurrenceKind === "weekly"
+          ? { kind: "weekly", weekdays: recurrenceWeekdays }
+          : { kind: recurrenceKind };
     onSubmit({
       title: trimmed,
       description: description.trim(),
@@ -81,8 +99,15 @@ export default function TaskForm({ defaultDate, defaultTime, editingTask, remind
       tags: parseTagsInput(tagsInput),
       subtasks,
       reminder,
+      recurrence,
     });
     onClose();
+  }
+
+  function toggleWeekday(idx: number) {
+    setRecurrenceWeekdays((prev) =>
+      prev.includes(idx) ? prev.filter((d) => d !== idx) : [...prev, idx],
+    );
   }
 
   function setReminderMode(mode: ReminderMode) {
@@ -164,6 +189,75 @@ export default function TaskForm({ defaultDate, defaultTime, editingTask, remind
             />
           </div>
         </div>
+
+        {!isEditing && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+              Повторять
+            </label>
+            <select
+              value={recurrenceKind}
+              onChange={(e) => setRecurrenceKind(e.target.value as RecurrenceKind)}
+              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
+            >
+              <option value="none">Не повторять</option>
+              <option value="daily">Каждый день</option>
+              <option value="weekdays">По будням (Пн–Пт)</option>
+              <option value="weekly">В выбранные дни недели</option>
+              <option value="monthly">Каждый месяц в это число</option>
+            </select>
+            {recurrenceKind === "weekly" && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {RU_WEEKDAY_ORDER.map((dayIdx) => {
+                  const active = recurrenceWeekdays.includes(dayIdx);
+                  return (
+                    <button
+                      key={dayIdx}
+                      type="button"
+                      onClick={() => toggleWeekday(dayIdx)}
+                      className={[
+                        "rounded-md px-3 py-1.5 text-xs font-medium transition",
+                        active
+                          ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700",
+                      ].join(" ")}
+                    >
+                      {WEEKDAY_LABELS_RU[dayIdx]}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {recurrenceKind !== "none" && (
+              <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                Создастся серия на {recurrenceKind === "monthly" ? "6 месяцев" : "12 недель"} вперёд.
+              </p>
+            )}
+          </div>
+        )}
+
+        {isEditing && isPartOfSeries && onDeleteSeries && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900/40 dark:bg-blue-950/30">
+            <span className="text-xs text-blue-900 dark:text-blue-200">
+              🔁 Эта задача — часть повторяющейся серии
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  editingTask?.recurringId &&
+                  confirm("Удалить ВСЕ задачи этой серии?")
+                ) {
+                  onDeleteSeries(editingTask.recurringId);
+                  onClose();
+                }
+              }}
+              className="rounded-md border border-red-200 px-2 py-1 text-[11px] font-medium text-red-600 transition hover:bg-red-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-950/30"
+            >
+              Удалить всю серию
+            </button>
+          </div>
+        )}
 
         <div>
           <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">

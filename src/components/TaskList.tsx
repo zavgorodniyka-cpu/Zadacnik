@@ -115,6 +115,14 @@ export default function TaskList({
                     >
                       {t.title}
                     </span>
+                    {t.recurringId && (
+                      <span
+                        className="text-[11px] text-zinc-400 dark:text-zinc-500"
+                        title="Часть повторяющейся серии"
+                      >
+                        🔁
+                      </span>
+                    )}
                   </div>
                   {t.description && (
                     <p
