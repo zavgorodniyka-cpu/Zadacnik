@@ -796,7 +796,7 @@ export default function Planner({ session }: Props) {
 
           {/* Right column on desktop, bottom blocks on mobile */}
           <div className="flex flex-col gap-4 lg:basis-[38%]">
-            <UpcomingList tasks={upcoming} onSelectDate={setSelectedDate} />
+            <UpcomingList tasks={upcoming} onSelectDate={setSelectedDate} onEdit={handleEdit} />
             <DatelessList
               tasks={allTasks}
               reminderDefaults={reminderDefaults}

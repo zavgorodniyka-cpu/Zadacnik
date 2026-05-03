@@ -6,9 +6,10 @@ import { formatHumanDate } from "@/lib/dates";
 type Props = {
   tasks: Task[];
   onSelectDate: (iso: string) => void;
+  onEdit: (task: Task) => void;
 };
 
-export default function UpcomingList({ tasks, onSelectDate }: Props) {
+export default function UpcomingList({ tasks, onSelectDate, onEdit }: Props) {
   return (
     <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 shadow-sm dark:border-orange-900/40 dark:bg-orange-950/30">
       <h2 className="mb-3 text-lg font-bold tracking-tight text-orange-500 dark:text-orange-400">
@@ -23,11 +24,12 @@ export default function UpcomingList({ tasks, onSelectDate }: Props) {
         <ul className="space-y-1">
           {tasks.map((t) =>
             t.dueDate ? (
-            <li key={t.id}>
+            <li key={t.id} className="group flex items-center gap-1 rounded-lg transition hover:bg-orange-100 dark:hover:bg-orange-900/30">
               <button
                 type="button"
-                onClick={() => onSelectDate(t.dueDate as string)}
-                className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-orange-100 dark:hover:bg-orange-900/30"
+                onClick={() => onEdit(t)}
+                className="flex flex-1 items-center gap-3 px-2 py-2 text-left"
+                aria-label={`Открыть задачу: ${t.title}`}
               >
                 <span className="w-20 flex-none text-xs font-medium text-orange-700 dark:text-orange-300">
                   {formatHumanDate(t.dueDate)}
@@ -45,6 +47,18 @@ export default function UpcomingList({ tasks, onSelectDate }: Props) {
                   )}
                   {t.title}
                 </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectDate(t.dueDate as string)}
+                aria-label="Показать в календаре"
+                title="Показать в календаре"
+                className="flex-none rounded-md p-1.5 text-orange-700/70 opacity-0 transition hover:bg-orange-200 hover:text-orange-900 group-hover:opacity-100 dark:text-orange-300/70 dark:hover:bg-orange-900/50 dark:hover:text-orange-100"
+              >
+                <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="3" width="12" height="11" rx="1.5" />
+                  <path d="M2 6h12M5.5 1.5v3M10.5 1.5v3" />
+                </svg>
               </button>
             </li>
             ) : null,
