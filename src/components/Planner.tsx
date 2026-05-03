@@ -58,6 +58,14 @@ import {
   scheduleNotifications,
   type NotificationSettings,
 } from "@/lib/notifications";
+import {
+  drainQueue,
+  enqueueMutation,
+  getQueueLength,
+  loadOfflineCache,
+  saveOfflineCache,
+  trySync,
+} from "@/lib/offline";
 import AnniversariesWidget from "./AnniversariesWidget";
 import Calendar from "./Calendar";
 import DatelessList from "./DatelessList";
@@ -102,6 +110,10 @@ export default function Planner({ session }: Props) {
     () => ({ enabled: false }),
   );
   const [confirmDone, setConfirmDone] = useState<Task | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
+  const [queueLen, setQueueLen] = useState<number>(0);
 
   const reminderDefaults = REMINDER_DEFAULTS;
 
@@ -132,13 +144,26 @@ export default function Planner({ session }: Props) {
     });
   }
 
-  // Initial load: fetch from Supabase, migrate localStorage if first login.
+  // Initial load: hydrate from offline cache instantly, then refresh from
+  // Supabase in the background.
   useEffect(() => {
     let cancelled = false;
+
+    // Step 1 — hydrate from offline cache so the app is usable immediately.
+    const cached = loadOfflineCache();
+    if (cached) {
+      setTasks(cached.tasks ?? []);
+      setAnniversaries(cached.anniversaries ?? []);
+      setFolders(cached.folders ?? []);
+      setIdeas(cached.ideas ?? []);
+      setExpenses(cached.expenses ?? []);
+      setHydrated(true);
+    }
+    setQueueLen(getQueueLength());
+
     (async () => {
       try {
-        // Use allSettled so one failing query (e.g. missing table)
-        // doesn't take down the rest of the page.
+        // Step 2 — fetch fresh data from Supabase.
         const [tR, aR, fR, iR, exR] = await Promise.allSettled([
           fetchTasks(),
           fetchAnniversaries(),
@@ -235,6 +260,33 @@ export default function Planner({ session }: Props) {
     };
   }, [userId]);
 
+  // Persist a snapshot of the current data to the offline cache after every change.
+  useEffect(() => {
+    if (!hydrated) return;
+    saveOfflineCache({ tasks, anniversaries, folders, ideas, expenses });
+  }, [tasks, anniversaries, folders, ideas, expenses, hydrated]);
+
+  // Online/offline detection + queue draining.
+  useEffect(() => {
+    function handleOnline() {
+      setIsOnline(true);
+      drainQueue((remaining) => setQueueLen(remaining)).catch(logErr);
+    }
+    function handleOffline() {
+      setIsOnline(false);
+    }
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    // On boot, if we're online and the queue has pending items, try to drain.
+    if (navigator.onLine && getQueueLength() > 0) {
+      drainQueue((remaining) => setQueueLen(remaining)).catch(logErr);
+    }
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
   useEffect(() => {
     if (hydrated) saveSettings(notifySettings);
   }, [notifySettings, hydrated]);
@@ -248,6 +300,9 @@ export default function Planner({ session }: Props) {
 
     async function refetchAll() {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      // Skip refetch while there are pending offline mutations — server state
+      // would overwrite local edits before the queue can drain.
+      if (getQueueLength() > 0) return;
       try {
         const [tR, aR, fR, iR, exR] = await Promise.allSettled([
           fetchTasks(),
@@ -367,6 +422,14 @@ export default function Planner({ session }: Props) {
     [filteredTasks],
   );
 
+  // Helper: try to sync a mutation; if it fails, push to offline queue.
+  function syncOrQueue(
+    attempt: () => Promise<void>,
+    entry: Parameters<typeof enqueueMutation>[0],
+  ) {
+    trySync(attempt, entry).finally(() => setQueueLen(getQueueLength()));
+  }
+
   const upcoming = useMemo(() => {
     const today = todayISO();
     return filteredTasks
@@ -413,7 +476,7 @@ export default function Planner({ session }: Props) {
         prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
       );
       setEditingTask(null);
-      dbUpdateTask(id, patch).catch(logErr);
+      syncOrQueue(() => dbUpdateTask(id, patch), { kind: "task.update", id, patch });
       return;
     }
 
@@ -431,7 +494,7 @@ export default function Planner({ session }: Props) {
       if (series.length > 0) {
         setTasks((prev) => [...prev, ...series]);
         setSelectedDate(series[0].dueDate ?? data.dueDate);
-        bulkInsertTasks(series).catch(logErr);
+        syncOrQueue(() => bulkInsertTasks(series), { kind: "task.bulk-insert", tasks: series });
         return;
       }
       // If no instances were generated (e.g. weekly with 0 days), fall through.
@@ -454,7 +517,7 @@ export default function Planner({ session }: Props) {
     };
     setTasks((prev) => [...prev, newTask]);
     setSelectedDate(data.dueDate);
-    dbInsertTask(newTask).catch(logErr);
+    syncOrQueue(() => dbInsertTask(newTask), { kind: "task.insert", task: newTask });
   }
 
   function handleDeleteSeries(recurringId: string) {
@@ -464,11 +527,9 @@ export default function Planner({ session }: Props) {
     if (ids.length === 0) return;
     setTasks((prev) => prev.filter((t) => t.recurringId !== recurringId));
     setEditingTask(null);
-    Promise.allSettled(ids.map((id) => dbDeleteTask(id))).then((results) => {
-      results.forEach((r) => {
-        if (r.status === "rejected") logErr(r.reason);
-      });
-    });
+    for (const id of ids) {
+      syncOrQueue(() => dbDeleteTask(id), { kind: "task.delete", id });
+    }
   }
 
   function handleSchedule(id: string, dueDate: string) {
@@ -476,7 +537,7 @@ export default function Planner({ session }: Props) {
       prev.map((t) => (t.id === id ? { ...t, dueDate } : t)),
     );
     setSelectedDate(dueDate);
-    dbUpdateTask(id, { dueDate }).catch(logErr);
+    syncOrQueue(() => dbUpdateTask(id, { dueDate }), { kind: "task.update", id, patch: { dueDate } });
   }
 
   function handleSmartCreate(data: {
@@ -498,7 +559,7 @@ export default function Planner({ session }: Props) {
     };
     setTasks((prev) => [...prev, newTask]);
     if (data.dueDate) setSelectedDate(data.dueDate);
-    dbInsertTask(newTask).catch(logErr);
+    syncOrQueue(() => dbInsertTask(newTask), { kind: "task.insert", task: newTask });
   }
 
   function handleQuickAdd(title: string) {
@@ -511,7 +572,7 @@ export default function Planner({ session }: Props) {
       createdAt: new Date().toISOString(),
     };
     setTasks((prev) => [...prev, newTask]);
-    dbInsertTask(newTask).catch(logErr);
+    syncOrQueue(() => dbInsertTask(newTask), { kind: "task.insert", task: newTask });
   }
 
   function handleToggle(id: string) {
@@ -526,7 +587,11 @@ export default function Planner({ session }: Props) {
     setTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, status: "todo" } : t)),
     );
-    dbUpdateTask(id, { status: "todo" }).catch(logErr);
+    syncOrQueue(() => dbUpdateTask(id, { status: "todo" }), {
+      kind: "task.update",
+      id,
+      patch: { status: "todo" },
+    });
   }
 
   function confirmMarkDone() {
@@ -535,7 +600,11 @@ export default function Planner({ session }: Props) {
     setTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, status: "done" } : t)),
     );
-    dbUpdateTask(id, { status: "done" }).catch(logErr);
+    syncOrQueue(() => dbUpdateTask(id, { status: "done" }), {
+      kind: "task.update",
+      id,
+      patch: { status: "done" },
+    });
     setConfirmDone(null);
   }
 
@@ -546,20 +615,28 @@ export default function Planner({ session }: Props) {
     setTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, priority: newPriority } : t)),
     );
-    dbUpdateTask(id, { priority: newPriority }).catch(logErr);
+    syncOrQueue(() => dbUpdateTask(id, { priority: newPriority }), {
+      kind: "task.update",
+      id,
+      patch: { priority: newPriority },
+    });
   }
 
   function handleSetReminder(id: string, reminder: Reminder | undefined) {
     setTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, reminder } : t)),
     );
-    dbUpdateTask(id, { reminder }).catch(logErr);
+    syncOrQueue(() => dbUpdateTask(id, { reminder }), {
+      kind: "task.update",
+      id,
+      patch: { reminder },
+    });
   }
 
   function handleDelete(id: string) {
     setTasks((prev) => prev.filter((t) => t.id !== id));
     if (editingTask?.id === id) setEditingTask(null);
-    dbDeleteTask(id).catch(logErr);
+    syncOrQueue(() => dbDeleteTask(id), { kind: "task.delete", id });
   }
 
   function handleEdit(task: Task) {
@@ -570,70 +647,70 @@ export default function Planner({ session }: Props) {
 
   function handleAddAnniversary(a: Anniversary) {
     setAnniversaries((prev) => [...prev, a]);
-    dbInsertAnniversary(a).catch(logErr);
+    syncOrQueue(() => dbInsertAnniversary(a), { kind: "anniversary.insert", anniversary: a });
   }
 
   function handleUpdateAnniversary(id: string, patch: Partial<Anniversary>) {
     setAnniversaries((prev) =>
       prev.map((a) => (a.id === id ? { ...a, ...patch } : a)),
     );
-    dbUpdateAnniversary(id, patch).catch(logErr);
+    syncOrQueue(() => dbUpdateAnniversary(id, patch), { kind: "anniversary.update", id, patch });
   }
 
   function handleDeleteAnniversary(id: string) {
     setAnniversaries((prev) => prev.filter((a) => a.id !== id));
-    dbDeleteAnniversary(id).catch(logErr);
+    syncOrQueue(() => dbDeleteAnniversary(id), { kind: "anniversary.delete", id });
   }
 
   function handleAddFolder(folder: Folder) {
     setFolders((prev) => [...prev, folder]);
-    dbInsertFolder(folder).catch(logErr);
+    syncOrQueue(() => dbInsertFolder(folder), { kind: "folder.insert", folder });
   }
 
   function handleUpdateFolder(id: string, patch: Partial<Folder>) {
     setFolders((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
-    dbUpdateFolder(id, patch).catch(logErr);
+    syncOrQueue(() => dbUpdateFolder(id, patch), { kind: "folder.update", id, patch });
   }
 
   function handleDeleteFolder(id: string) {
     setFolders((prev) => prev.filter((f) => f.id !== id));
     setIdeas((prev) => prev.filter((i) => i.folderId !== id));
-    dbDeleteFolder(id).catch(logErr);
+    syncOrQueue(() => dbDeleteFolder(id), { kind: "folder.delete", id });
   }
 
   function handleAddIdea(item: IdeaItem) {
     setIdeas((prev) => [...prev, item]);
-    dbInsertIdea(item).catch(logErr);
+    syncOrQueue(() => dbInsertIdea(item), { kind: "idea.insert", idea: item });
   }
 
   function handleUpdateIdea(id: string, patch: Partial<IdeaItem>) {
     setIdeas((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
-    dbUpdateIdea(id, patch).catch(logErr);
+    syncOrQueue(() => dbUpdateIdea(id, patch), { kind: "idea.update", id, patch });
   }
 
   function handleDeleteIdea(id: string) {
     setIdeas((prev) => prev.filter((i) => i.id !== id));
-    dbDeleteIdea(id).catch(logErr);
+    syncOrQueue(() => dbDeleteIdea(id), { kind: "idea.delete", id });
   }
 
   function handleAddExpense(e: Expense) {
     setExpenses((prev) => [...prev, e]);
-    dbInsertExpense(e).catch(logErr);
+    syncOrQueue(() => dbInsertExpense(e), { kind: "expense.insert", expense: e });
   }
 
   function handleAddExpensesBulk(items: Expense[]) {
     setExpenses((prev) => [...prev, ...items]);
-    bulkInsertExpenses(items).catch(logErr);
+    syncOrQueue(() => bulkInsertExpenses(items), { kind: "expense.bulk-insert", expenses: items });
   }
 
   function handleUpdateExpense(id: string, patch: Partial<Expense>) {
     setExpenses((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
-    dbUpdateExpense(id, patch).catch(logErr);
+    syncOrQueue(() => dbUpdateExpense(id, patch), { kind: "expense.update", id, patch });
   }
 
   function handleDeleteExpense(id: string) {
     setExpenses((prev) => prev.filter((e) => e.id !== id));
-    dbDeleteExpense(id).catch(logErr);
+    syncOrQueue(() => dbDeleteExpense(id), { kind: "expense.delete", id });
   }
 
   async function handleSignOut() {
@@ -704,6 +781,19 @@ export default function Planner({ session }: Props) {
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
             Задачник
           </h1>
+          {(!isOnline || queueLen > 0) && (
+            <span
+              className={[
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                !isOnline
+                  ? "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
+                  : "bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-200",
+              ].join(" ")}
+              title={!isOnline ? "Без интернета — изменения сохраняются локально" : `${queueLen} ожидают синхронизации`}
+            >
+              {!isOnline ? "● Офлайн" : `↻ Синхронизация · ${queueLen}`}
+            </span>
+          )}
           <div className="flex items-center gap-1.5 sm:hidden">
             <NotificationsButton
               settings={notifySettings}
