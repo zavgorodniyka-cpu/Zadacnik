@@ -56,6 +56,7 @@ export default function AnniversariesWidget({
     };
     onAdd(a);
     setDraft("");
+    setEditingId(a.id);
   }
 
   return (
