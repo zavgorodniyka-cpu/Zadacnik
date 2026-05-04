@@ -12,7 +12,7 @@ export type NotificationSettings = {
 const SETTINGS_KEY = "planner.notify.v4";
 
 const DEFAULTS: NotificationSettings = {
-  enabled: false,
+  enabled: true,
 };
 
 export const REMINDER_DEFAULTS: { mode: ReminderMode; time: string } = {

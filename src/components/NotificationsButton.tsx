@@ -33,20 +33,18 @@ export default function NotificationsButton({ settings, onChange }: Props) {
     return () => document.removeEventListener("mousedown", onClick);
   }, [open]);
 
+  const supported = isSupported();
+  const isOn = settings.enabled && permission === "granted";
+
   async function handleToggle() {
-    if (!settings.enabled) {
+    if (!isOn) {
       const result = await requestPermission();
       setPermission(result);
-      if (result === "granted") {
-        onChange({ enabled: true });
-      }
+      onChange({ enabled: result === "granted" });
     } else {
       onChange({ enabled: false });
     }
   }
-
-  const supported = isSupported();
-  const isOn = settings.enabled && permission === "granted";
 
   return (
     <div ref={ref} className="relative">

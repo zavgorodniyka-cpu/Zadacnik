@@ -107,7 +107,7 @@ export default function Planner({ session }: Props) {
   const [prefillTime, setPrefillTime] = useState<string>("");
   const [hiddenTags, setHiddenTags] = useState<Set<string>>(() => new Set());
   const [notifySettings, setNotifySettings] = useState<NotificationSettings>(
-    () => ({ enabled: false }),
+    () => ({ enabled: true }),
   );
   const [confirmDone, setConfirmDone] = useState<Task | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(() =>

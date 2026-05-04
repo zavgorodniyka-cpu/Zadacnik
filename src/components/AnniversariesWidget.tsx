@@ -9,6 +9,7 @@ import type {
 import type { ReminderMode } from "@/types/task";
 import { formatHumanDate, todayISO } from "@/lib/dates";
 import { nextOccurrence, recurrenceLabel } from "@/lib/anniversaries";
+import { REMINDER_DEFAULTS } from "@/lib/notifications";
 
 type Props = {
   anniversaries: Anniversary[];
@@ -50,6 +51,7 @@ export default function AnniversariesWidget({
       title: trimmed,
       startDate: todayISO(),
       recurrence: "yearly",
+      notify: { ...REMINDER_DEFAULTS },
       createdAt: new Date().toISOString(),
     };
     onAdd(a);
