@@ -782,17 +782,23 @@ export default function Planner({ session }: Props) {
             Задачник
           </h1>
           {(!isOnline || queueLen > 0) && (
-            <span
+            <button
+              type="button"
+              onClick={() => {
+                if (!isOnline) return;
+                drainQueue((remaining) => setQueueLen(remaining)).catch(logErr);
+              }}
+              disabled={!isOnline}
               className={[
-                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition",
                 !isOnline
-                  ? "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
-                  : "bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-200",
+                  ? "cursor-default bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
+                  : "cursor-pointer bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-950/50 dark:text-blue-200 dark:hover:bg-blue-900/60",
               ].join(" ")}
-              title={!isOnline ? "Без интернета — изменения сохраняются локально" : `${queueLen} ожидают синхронизации`}
+              title={!isOnline ? "Без интернета — изменения сохраняются локально" : `Нажми, чтобы повторить синхронизацию (${queueLen} в очереди)`}
             >
               {!isOnline ? "● Офлайн" : `↻ Синхронизация · ${queueLen}`}
-            </span>
+            </button>
           )}
           <div className="flex items-center gap-1.5 sm:hidden">
             <NotificationsButton

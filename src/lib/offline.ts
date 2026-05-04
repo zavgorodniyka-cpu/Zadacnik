@@ -93,6 +93,10 @@ export type QueueEntry =
   | { kind: "expense.update"; id: string; patch: Partial<Expense> }
   | { kind: "expense.delete"; id: string };
 
+type StoredEntry = QueueEntry & { _attempts?: number };
+
+const MAX_ATTEMPTS = 3;
+
 function loadQueue(): QueueEntry[] {
   if (typeof window === "undefined") return [];
   try {
@@ -173,29 +177,45 @@ let isDraining = false;
 
 export async function drainQueue(
   onChange?: (remaining: number) => void,
-): Promise<{ remaining: number; succeeded: number; failed: number }> {
-  if (isDraining) return { remaining: getQueueLength(), succeeded: 0, failed: 0 };
+): Promise<{ remaining: number; succeeded: number; failed: number; dropped: number }> {
+  if (isDraining)
+    return { remaining: getQueueLength(), succeeded: 0, failed: 0, dropped: 0 };
   isDraining = true;
   let succeeded = 0;
   let failed = 0;
+  let dropped = 0;
   try {
-    let queue = loadQueue();
+    const queue = loadQueue() as StoredEntry[];
     onChange?.(queue.length);
-    while (queue.length > 0) {
-      const entry = queue[0];
+
+    const remaining: StoredEntry[] = [];
+    for (const entry of queue) {
       try {
         await applyEntry(entry);
-        queue = queue.slice(1);
-        saveQueue(queue);
         succeeded += 1;
-        onChange?.(queue.length);
-      } catch {
-        // Stop draining on first failure — likely still offline or server down.
-        failed += 1;
-        break;
+      } catch (err) {
+        const attempts = (entry._attempts ?? 0) + 1;
+        if (attempts >= MAX_ATTEMPTS) {
+          dropped += 1;
+          if (typeof console !== "undefined") {
+            console.warn(
+              "[planner offline] dropping queue entry after",
+              MAX_ATTEMPTS,
+              "attempts:",
+              entry.kind,
+              err,
+            );
+          }
+        } else {
+          remaining.push({ ...entry, _attempts: attempts });
+          failed += 1;
+        }
       }
+      onChange?.(remaining.length + (queue.length - queue.indexOf(entry) - 1));
     }
-    return { remaining: queue.length, succeeded, failed };
+    saveQueue(remaining);
+    onChange?.(remaining.length);
+    return { remaining: remaining.length, succeeded, failed, dropped };
   } finally {
     isDraining = false;
   }
