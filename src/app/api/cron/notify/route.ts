@@ -7,8 +7,6 @@ import type { Anniversary, AnniversaryNotify, Recurrence } from "@/types/anniver
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MORNING_DIGEST_HOUR = 9;
-
 type DbRow = {
   id: string;
   title: string;
@@ -33,23 +31,17 @@ function rowToAnniversary(r: DbRow): Anniversary {
   };
 }
 
-function getLocalNow(tz: string): { hour: number; today: Date } {
+function localToday(tz: string): Date {
   const fmt = new Intl.DateTimeFormat("en-CA", {
     timeZone: tz,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-    hour: "2-digit",
-    hour12: false,
   });
   const parts = Object.fromEntries(
     fmt.formatToParts(new Date()).map((p) => [p.type, p.value]),
   );
-  const y = Number(parts.year);
-  const mo = Number(parts.month);
-  const d = Number(parts.day);
-  const hour = Number(parts.hour);
-  return { hour, today: new Date(y, mo - 1, d) };
+  return new Date(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
 }
 
 function isoFromDate(d: Date): string {
@@ -78,7 +70,7 @@ export async function GET(req: Request) {
   }
 
   const tz = process.env.OWNER_TIMEZONE || "Europe/Moscow";
-  const { hour, today } = getLocalNow(tz);
+  const today = localToday(tz);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
   const todayIso = isoFromDate(today);
@@ -101,64 +93,45 @@ export async function GET(req: Request) {
 
   const todayItems: Anniversary[] = [];
   const tomorrowDayBeforeItems: Anniversary[] = [];
-  const perItemAlerts: { a: Anniversary; isToday: boolean }[] = [];
 
   for (const a of items) {
     if (!a.notify) continue;
     const next = nextOccurrence(a, today);
     if (!next) continue;
     const nextIso = isoFromDate(next);
-    const isTargetToday = a.notify.mode === "same_day" && nextIso === todayIso;
-    const isTargetTomorrow = a.notify.mode === "day_before" && nextIso === tomorrowIso;
-    if (!isTargetToday && !isTargetTomorrow) continue;
-
-    if (isTargetToday) todayItems.push(a);
-    if (isTargetTomorrow) tomorrowDayBeforeItems.push(a);
-
-    const alertHour = Number(a.notify.time.split(":")[0]);
-    if (alertHour === hour) {
-      perItemAlerts.push({ a, isToday: isTargetToday });
+    if (a.notify.mode === "same_day" && nextIso === todayIso) {
+      todayItems.push(a);
+    } else if (a.notify.mode === "day_before" && nextIso === tomorrowIso) {
+      tomorrowDayBeforeItems.push(a);
     }
   }
 
-  let sent = 0;
-
-  if (
-    hour === MORNING_DIGEST_HOUR &&
-    (todayItems.length > 0 || tomorrowDayBeforeItems.length > 0)
-  ) {
-    const lines: string[] = [];
-    if (todayItems.length > 0) {
-      lines.push("🔔 Сегодня:");
-      for (const a of todayItems) {
-        const time = a.notify ? ` (${a.notify.time})` : "";
-        lines.push(`• ${a.emoji ? a.emoji + " " : ""}${a.title}${time}`);
-      }
-    }
-    if (tomorrowDayBeforeItems.length > 0) {
-      if (lines.length > 0) lines.push("");
-      lines.push("📅 Завтра:");
-      for (const a of tomorrowDayBeforeItems) {
-        lines.push(`• ${a.emoji ? a.emoji + " " : ""}${a.title}`);
-      }
-    }
-    await sendTelegramMessage(ownerChatId, lines.join("\n"));
-    sent++;
+  if (todayItems.length === 0 && tomorrowDayBeforeItems.length === 0) {
+    return NextResponse.json({ ok: true, sent: 0 });
   }
 
-  for (const { a, isToday } of perItemAlerts) {
-    const when = isToday ? "Сегодня" : "Завтра";
-    const text = `🔔 ${a.emoji ? a.emoji + " " : ""}${a.title}\n${when} в ${a.notify!.time}`;
-    await sendTelegramMessage(ownerChatId, text);
-    sent++;
+  const lines: string[] = [];
+  if (todayItems.length > 0) {
+    lines.push("🔔 Сегодня:");
+    for (const a of todayItems) {
+      const time = a.notify ? ` (${a.notify.time})` : "";
+      lines.push(`• ${a.emoji ? a.emoji + " " : ""}${a.title}${time}`);
+    }
   }
+  if (tomorrowDayBeforeItems.length > 0) {
+    if (lines.length > 0) lines.push("");
+    lines.push("📅 Завтра:");
+    for (const a of tomorrowDayBeforeItems) {
+      lines.push(`• ${a.emoji ? a.emoji + " " : ""}${a.title}`);
+    }
+  }
+
+  await sendTelegramMessage(ownerChatId, lines.join("\n"));
 
   return NextResponse.json({
     ok: true,
-    hour,
     todayItems: todayItems.length,
     tomorrowDayBeforeItems: tomorrowDayBeforeItems.length,
-    perItemAlerts: perItemAlerts.length,
-    sent,
+    sent: 1,
   });
 }
