@@ -98,6 +98,7 @@ export default function AnniversariesWidget({
                 key={a.id}
                 anniversary={a}
                 onEdit={() => setEditingId(a.id)}
+                onDelete={() => onDelete(a.id)}
               />
             ),
           )}
@@ -110,9 +111,11 @@ export default function AnniversariesWidget({
 function DisplayRow({
   anniversary: a,
   onEdit,
+  onDelete,
 }: {
   anniversary: Anniversary;
   onEdit: () => void;
+  onDelete: () => void;
 }) {
   const next = nextOccurrence(a);
   const nextLabel = next
@@ -121,10 +124,17 @@ function DisplayRow({
 
   return (
     <li>
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onEdit}
-        className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left transition hover:border-zinc-200 hover:bg-zinc-50 dark:hover:border-zinc-800 dark:hover:bg-zinc-900"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onEdit();
+          }
+        }}
+        className="group flex w-full cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left transition hover:border-zinc-200 hover:bg-zinc-50 dark:hover:border-zinc-800 dark:hover:bg-zinc-900"
       >
         <span className="flex-none text-xl">{a.emoji ?? "📌"}</span>
         <div className="flex-1 min-w-0">
@@ -148,7 +158,23 @@ function DisplayRow({
             )}
           </div>
         </div>
-      </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (window.confirm(`Удалить «${a.title}»?`)) {
+              onDelete();
+            }
+          }}
+          aria-label="Удалить напоминание"
+          title="Удалить"
+          className="flex-none rounded-md p-1.5 text-zinc-400 transition hover:bg-red-50 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+        >
+          <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 4h10M6.5 4V2.5h3V4M5 4l.5 9a1 1 0 001 1h3a1 1 0 001-1L11 4" />
+          </svg>
+        </button>
+      </div>
     </li>
   );
 }
