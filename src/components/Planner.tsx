@@ -939,6 +939,15 @@ export default function Planner({ session }: Props) {
               onSetReminder={handleSetReminder}
             />
           </div>
+
+          <div className="lg:hidden">
+            <DayTimeline
+              tasks={filteredTasks}
+              selectedDate={selectedDate}
+              onTaskClick={handleEdit}
+              onSlotClick={handleSlotClick}
+            />
+          </div>
         </div>
       )}
 
