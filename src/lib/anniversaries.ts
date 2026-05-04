@@ -1,5 +1,3 @@
-"use client";
-
 import type { Anniversary, Recurrence } from "@/types/anniversary";
 import { fromISODate, toISODate } from "./dates";
 
