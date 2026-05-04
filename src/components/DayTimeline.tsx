@@ -132,6 +132,7 @@ export default function DayTimeline({
             : Math.min(top + PX_PER_HOUR / 2, TIMELINE_HEIGHT);
           const height = Math.max(bottom - top, 22);
           const isHigh = t.priority === "high";
+          const isCompact = height < 36;
           return (
             <button
               key={t.id}
@@ -143,7 +144,7 @@ export default function DayTimeline({
               onMouseEnter={(e) => e.stopPropagation()}
               onMouseMove={(e) => e.stopPropagation()}
               className={[
-                "absolute left-12 right-1 z-10 cursor-pointer rounded-md border px-2 py-1 text-left text-xs shadow-sm transition",
+                "absolute left-12 right-1 z-10 cursor-pointer overflow-hidden rounded-md border px-2 py-1 text-left text-xs shadow-sm transition",
                 isHigh
                   ? "border-red-300 bg-red-50 text-red-900 hover:border-red-400 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-100 dark:hover:border-red-700 dark:hover:bg-red-950/60"
                   : "border-zinc-300 bg-zinc-100 text-zinc-900 hover:border-zinc-500 hover:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:border-zinc-500 dark:hover:bg-zinc-700",
@@ -151,15 +152,26 @@ export default function DayTimeline({
               style={{ top, height }}
               title={t.title}
             >
-              <div className="flex items-center gap-2 leading-tight">
-                <span className="font-mono tabular-nums opacity-70">
-                  {t.dueTime}
-                  {t.endTime ? `–${t.endTime}` : ""}
-                </span>
-              </div>
-              <div className="mt-0.5 truncate font-medium leading-tight">
-                {t.title}
-              </div>
+              {isCompact ? (
+                <div className="flex items-center gap-1.5 leading-tight">
+                  <span className="flex-none font-mono tabular-nums opacity-70">
+                    {t.dueTime}
+                  </span>
+                  <span className="truncate font-medium">{t.title}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 leading-tight">
+                    <span className="font-mono tabular-nums opacity-70">
+                      {t.dueTime}
+                      {t.endTime ? `–${t.endTime}` : ""}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 truncate font-medium leading-tight">
+                    {t.title}
+                  </div>
+                </>
+              )}
             </button>
           );
         })}
