@@ -255,7 +255,7 @@ function EditRow({
         ))}
       </div>
 
-      <div className="mb-2 grid grid-cols-2 gap-2">
+      <div className="mb-2 flex flex-col gap-2">
         <div>
           <label className="mb-1 block text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
             Дата
