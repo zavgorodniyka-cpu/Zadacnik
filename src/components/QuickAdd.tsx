@@ -31,6 +31,8 @@ export default function QuickAdd({ onCreate, inputRef }: Props) {
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const internalInputRef = useRef<HTMLInputElement | null>(null);
+  const stopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const w = window as unknown as {
@@ -41,6 +43,13 @@ export default function QuickAdd({ onCreate, inputRef }: Props) {
     setVoiceSupported(!!SR);
   }, []);
 
+  function setInputRef(el: HTMLInputElement | null) {
+    internalInputRef.current = el;
+    if (inputRef) {
+      (inputRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
+    }
+  }
+
   const preview = useMemo(() => {
     const trimmed = text.trim();
     if (!trimmed) return null;
@@ -48,6 +57,7 @@ export default function QuickAdd({ onCreate, inputRef }: Props) {
   }, [text]);
 
   const hasParsedExtras = !!(preview && (preview.dueDate || preview.dueTime));
+  const hasText = !!preview?.title;
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -61,10 +71,18 @@ export default function QuickAdd({ onCreate, inputRef }: Props) {
     setText("");
   }
 
+  function clearStopTimeout() {
+    if (stopTimeoutRef.current) {
+      clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = null;
+    }
+  }
+
   function toggleVoice() {
     setVoiceError(null);
     if (isListening) {
       recognitionRef.current?.stop();
+      clearStopTimeout();
       setIsListening(false);
       return;
     }
@@ -89,9 +107,13 @@ export default function QuickAdd({ onCreate, inputRef }: Props) {
       setText(transcript);
     };
     recognition.onend = () => {
+      clearStopTimeout();
       setIsListening(false);
+      // Move focus back to the input so Enter submits the form.
+      requestAnimationFrame(() => internalInputRef.current?.focus());
     };
     recognition.onerror = (event) => {
+      clearStopTimeout();
       const code = event.error || "unknown";
       const message =
         code === "not-allowed" || code === "service-not-allowed"
@@ -106,11 +128,31 @@ export default function QuickAdd({ onCreate, inputRef }: Props) {
     try {
       recognition.start();
       setIsListening(true);
+      // Safety net: some browsers (notably iOS Safari) don't auto-stop on
+      // continuous=false. Force-stop after 15 s.
+      stopTimeoutRef.current = setTimeout(() => {
+        try {
+          recognitionRef.current?.stop();
+        } catch {
+          // ignore
+        }
+      }, 15000);
     } catch (err) {
       console.error("[speech] start error", err);
       setVoiceError("Не удалось включить микрофон");
     }
   }
+
+  useEffect(() => {
+    return () => {
+      clearStopTimeout();
+      try {
+        recognitionRef.current?.stop();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
 
   return (
     <form onSubmit={submit} className="relative w-full sm:max-w-xs">
@@ -124,7 +166,7 @@ export default function QuickAdd({ onCreate, inputRef }: Props) {
           Умный ввод ·
         </span>
         <input
-          ref={inputRef}
+          ref={setInputRef}
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -154,15 +196,21 @@ export default function QuickAdd({ onCreate, inputRef }: Props) {
           </button>
         )}
       </div>
-      {(hasParsedExtras || voiceError) && (
+      {(hasText || voiceError || isListening) && (
         <div className="absolute left-0 right-0 top-full z-10 mt-1 rounded-lg border border-zinc-200 bg-white p-2 text-xs shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
           {voiceError ? (
             <div className="text-red-600 dark:text-red-400">{voiceError}</div>
-          ) : (
+          ) : isListening && !hasText ? (
+            <div className="text-zinc-500 dark:text-zinc-400">
+              Слушаю… Тапни на 🎤 чтобы остановить.
+            </div>
+          ) : hasText ? (
             <>
-              <div className="text-zinc-500 dark:text-zinc-400">Распознал:</div>
+              <div className="text-zinc-500 dark:text-zinc-400">
+                {hasParsedExtras ? "Распознал:" : "Готов создать:"}
+              </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-2 text-zinc-900 dark:text-zinc-100">
-                <span className="font-medium">{preview!.title || "(без названия)"}</span>
+                <span className="font-medium">{preview!.title}</span>
                 {preview!.dueDate && (
                   <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
                     {formatHumanDate(preview!.dueDate)}
@@ -174,10 +222,15 @@ export default function QuickAdd({ onCreate, inputRef }: Props) {
                     {preview!.endTime ? `–${preview!.endTime}` : ""}
                   </span>
                 )}
-                <span className="text-zinc-400 dark:text-zinc-600">↵ создать</span>
+                <button
+                  type="submit"
+                  className="ml-auto rounded-md bg-zinc-900 px-2 py-0.5 text-[11px] font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  Создать ↵
+                </button>
               </div>
             </>
-          )}
+          ) : null}
         </div>
       )}
     </form>
