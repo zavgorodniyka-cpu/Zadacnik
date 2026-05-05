@@ -69,6 +69,27 @@ CREATE TABLE IF NOT EXISTS public.expenses (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS public.lessons (
+  id text PRIMARY KEY,
+  user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+  title text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.words (
+  id text PRIMARY KEY,
+  user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+  lesson_id text NOT NULL REFERENCES public.lessons(id) ON DELETE CASCADE,
+  english text NOT NULL,
+  translation text,
+  transcription text,
+  example_en text,
+  distractors text[],
+  srs_box int NOT NULL DEFAULT 1,
+  next_review_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- ---------- ВКЛЮЧАЕМ RLS ----------
 
 ALTER TABLE public.tasks         ENABLE ROW LEVEL SECURITY;
@@ -76,6 +97,8 @@ ALTER TABLE public.anniversaries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.folders       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ideas         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.expenses      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.lessons       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.words         ENABLE ROW LEVEL SECURITY;
 
 -- ---------- ПОЛИТИКИ (удаляем старые, ставим новые) ----------
 
@@ -83,7 +106,7 @@ DO $$
 DECLARE
   t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['tasks','anniversaries','folders','ideas','expenses'] LOOP
+  FOREACH t IN ARRAY ARRAY['tasks','anniversaries','folders','ideas','expenses','lessons','words'] LOOP
     EXECUTE format('DROP POLICY IF EXISTS "own rows select" ON public.%I', t);
     EXECUTE format('DROP POLICY IF EXISTS "own rows insert" ON public.%I', t);
     EXECUTE format('DROP POLICY IF EXISTS "own rows update" ON public.%I', t);
@@ -95,3 +118,34 @@ BEGIN
     EXECUTE format('CREATE POLICY "own rows delete" ON public.%I FOR DELETE USING (auth.uid() = user_id)', t);
   END LOOP;
 END $$;
+
+-- ---------- ХРАНИЛИЩЕ ФАЙЛОВ ИДЕЙ ----------
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('idea-files', 'idea-files', false)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "ideas own files insert" ON storage.objects;
+DROP POLICY IF EXISTS "ideas own files select" ON storage.objects;
+DROP POLICY IF EXISTS "ideas own files delete" ON storage.objects;
+
+CREATE POLICY "ideas own files insert"
+ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (
+  bucket_id = 'idea-files'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+);
+
+CREATE POLICY "ideas own files select"
+ON storage.objects FOR SELECT TO authenticated
+USING (
+  bucket_id = 'idea-files'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+);
+
+CREATE POLICY "ideas own files delete"
+ON storage.objects FOR DELETE TO authenticated
+USING (
+  bucket_id = 'idea-files'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+);
