@@ -60,8 +60,8 @@ const HELP_TEXT = [
   "Команды:",
   "/expense <сумма> <категория> [описание] — записать трату",
   "  пример: /expense 1500 продукты молоко хлеб",
-  "/idea <текст или ссылка> — записать идею",
-  "  пример: /idea https://example.com прочитать про X",
+  "/idea <текст или ссылка> [в папку <название>] — записать идею",
+  "  пример: /idea https://example.com статья в папку чтение",
   "/word <слово> [- перевод] — добавить слово на изучение",
   "  пример: /word resilience - стойкость",
   "/whoami — показать твой chat_id",
@@ -168,40 +168,90 @@ export async function POST(req: Request) {
 
   // ---------- /idea ----------
   if (text.startsWith("/idea")) {
-    const args = text.slice("/idea".length).trim();
+    let args = text.slice("/idea".length).trim();
     if (!args) {
       await sendTelegramMessage(
         chatId,
-        "Формат: /idea <текст или ссылка>\nПример: /idea https://example.com интересная статья",
+        "Формат: /idea <текст или ссылка> [в папку <название>]\nПример: /idea https://example.com статья в папку чтение",
       );
       return NextResponse.json({ ok: true });
     }
+
+    // Extract optional "в папку <name>" — take everything after as folder name.
+    let folderName: string | null = null;
+    const lower = args.toLowerCase();
+    const folderIdx = lower.lastIndexOf(" в папку ");
+    const startsWithMarker = lower.startsWith("в папку ");
+    if (folderIdx >= 0) {
+      folderName = args.slice(folderIdx + " в папку ".length).trim();
+      args = args.slice(0, folderIdx).trim();
+    } else if (startsWithMarker) {
+      folderName = args.slice("в папку ".length).trim();
+      args = "";
+    }
+
     const urlMatch = args.match(/(https?:\/\/[^\s]+)/);
     const url = urlMatch ? urlMatch[1] : null;
     let title = url ? args.replace(url, "").trim() : args;
     if (!title) title = url ?? "Без названия";
 
-    // Find or create a default folder.
-    const { data: folders } = await supabase
-      .from("folders")
-      .select("id")
-      .eq("user_id", ownerUserId)
-      .order("created_at", { ascending: true })
-      .limit(1);
-    let folderId = folders?.[0]?.id as string | undefined;
-    if (!folderId) {
-      folderId = generateId();
-      const { error: folderErr } = await supabase.from("folders").insert({
-        id: folderId,
-        user_id: ownerUserId,
-        name: "Идеи",
-        emoji: "💡",
-        created_at: new Date().toISOString(),
-      });
-      if (folderErr) {
-        console.error("[telegram webhook] folder error", folderErr);
-        await sendTelegramMessage(chatId, `Ошибка: ${folderErr.message}`);
-        return NextResponse.json({ ok: false, error: folderErr.message }, { status: 500 });
+    // Resolve folder: by name (fuzzy) if specified, else use first existing.
+    let folderId: string | undefined;
+    let folderLabel: string | null = null;
+    if (folderName) {
+      const { data: matches } = await supabase
+        .from("folders")
+        .select("id, name, emoji")
+        .eq("user_id", ownerUserId)
+        .ilike("name", `%${folderName}%`)
+        .limit(1);
+      if (matches && matches.length > 0) {
+        folderId = matches[0].id as string;
+        const m = matches[0] as { name: string; emoji?: string };
+        folderLabel = `${m.emoji ? m.emoji + " " : ""}${m.name}`;
+      } else {
+        folderId = generateId();
+        const created = {
+          id: folderId,
+          user_id: ownerUserId,
+          name: folderName,
+          emoji: null as string | null,
+          created_at: new Date().toISOString(),
+        };
+        const { error: folderErr } = await supabase.from("folders").insert(created);
+        if (folderErr) {
+          console.error("[telegram webhook] folder create error", folderErr);
+          await sendTelegramMessage(chatId, `Ошибка создания папки: ${folderErr.message}`);
+          return NextResponse.json({ ok: false, error: folderErr.message }, { status: 500 });
+        }
+        folderLabel = `новая «${folderName}»`;
+      }
+    } else {
+      const { data: folders } = await supabase
+        .from("folders")
+        .select("id, name, emoji")
+        .eq("user_id", ownerUserId)
+        .order("created_at", { ascending: true })
+        .limit(1);
+      if (folders && folders.length > 0) {
+        folderId = folders[0].id as string;
+        const f = folders[0] as { name: string; emoji?: string };
+        folderLabel = `${f.emoji ? f.emoji + " " : ""}${f.name}`;
+      } else {
+        folderId = generateId();
+        const { error: folderErr } = await supabase.from("folders").insert({
+          id: folderId,
+          user_id: ownerUserId,
+          name: "Идеи",
+          emoji: "💡",
+          created_at: new Date().toISOString(),
+        });
+        if (folderErr) {
+          console.error("[telegram webhook] folder error", folderErr);
+          await sendTelegramMessage(chatId, `Ошибка: ${folderErr.message}`);
+          return NextResponse.json({ ok: false, error: folderErr.message }, { status: 500 });
+        }
+        folderLabel = "💡 Идеи";
       }
     }
 
@@ -218,7 +268,8 @@ export async function POST(req: Request) {
       await sendTelegramMessage(chatId, `Ошибка: ${error.message}`);
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     }
-    await sendTelegramMessage(chatId, `💡 Записал идею: ${title}`);
+    const where = folderLabel ? `\nПапка: ${folderLabel}` : "";
+    await sendTelegramMessage(chatId, `💡 Записал идею: ${title}${where}`);
     return NextResponse.json({ ok: true });
   }
 
