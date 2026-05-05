@@ -70,6 +70,7 @@ import AnniversariesWidget from "./AnniversariesWidget";
 import Calendar from "./Calendar";
 import DatelessList from "./DatelessList";
 import DayTimeline from "./DayTimeline";
+import EnglishView from "./EnglishView";
 import ExpensesView from "./ExpensesView";
 import IdeasView from "./IdeasView";
 import NotificationsButton from "./NotificationsButton";
@@ -79,7 +80,7 @@ import TaskForm from "./TaskForm";
 import TaskList from "./TaskList";
 import UpcomingList from "./UpcomingList";
 
-type View = "calendar" | "finance" | "reminders" | "ideas";
+type View = "calendar" | "finance" | "reminders" | "ideas" | "english";
 
 type Props = {
   session: Session;
@@ -736,6 +737,7 @@ export default function Planner({ session }: Props) {
     { id: "finance", label: "Финансы" },
     { id: "reminders", label: "Напоминания" },
     { id: "ideas", label: "Идеи" },
+    { id: "english", label: "Английский" },
   ];
 
   const tabClass = (active: boolean) =>
@@ -893,10 +895,12 @@ export default function Planner({ session }: Props) {
           onDeleteItem={handleDeleteIdea}
           generateId={generateId}
         />
+      ) : view === "english" ? (
+        <EnglishView userId={userId} />
       ) : (
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
           {/* Left column on desktop, first three blocks on mobile */}
-          <div className="flex flex-col gap-4 lg:basis-[62%]">
+          <div className="flex min-w-0 flex-col gap-4 lg:basis-[62%]">
             <Calendar
               tasks={filteredTasks}
               anniversaries={anniversaries}
@@ -928,7 +932,7 @@ export default function Planner({ session }: Props) {
           </div>
 
           {/* Right column on desktop, bottom blocks on mobile */}
-          <div className="flex flex-col gap-4 lg:basis-[38%]">
+          <div className="flex min-w-0 flex-col gap-4 lg:basis-[38%]">
             <UpcomingList tasks={upcoming} onSelectDate={setSelectedDate} onEdit={handleEdit} />
             <DatelessList
               tasks={allTasks}
