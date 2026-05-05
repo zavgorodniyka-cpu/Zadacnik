@@ -33,6 +33,41 @@ function ruDate(iso?: string): string {
   return `${d}.${m}.${y.slice(2)}`;
 }
 
+function getOwnerTz(): string {
+  return process.env.OWNER_TIMEZONE || "Europe/Moscow";
+}
+
+function todayIsoInTz(tz: string): string {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = Object.fromEntries(
+    fmt.formatToParts(new Date()).map((p) => [p.type, p.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+const HELP_TEXT = [
+  "Просто напиши задачу обычным текстом.",
+  "Понимаю даты и время:",
+  "• Купить хлеб завтра в 18:00",
+  "• Позвонить маме в пятницу",
+  "• Отчёт 15 мая",
+  "",
+  "Команды:",
+  "/expense <сумма> <категория> [описание] — записать трату",
+  "  пример: /expense 1500 продукты молоко хлеб",
+  "/idea <текст или ссылка> — записать идею",
+  "  пример: /idea https://example.com прочитать про X",
+  "/word <слово> [- перевод] — добавить слово на изучение",
+  "  пример: /word resilience - стойкость",
+  "/whoami — показать твой chat_id",
+  "/help — эта справка",
+].join("\n");
+
 export async function POST(req: Request) {
   // Validate secret token from Telegram (set when configuring webhook).
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -56,9 +91,10 @@ export async function POST(req: Request) {
   const chatId = message.chat.id;
   const ownerChatIdRaw = process.env.TELEGRAM_OWNER_CHAT_ID;
   const ownerUserId = process.env.OWNER_USER_ID;
+  const text = message.text.trim();
 
   // Reply to /start before owner check so the user can find their chat_id.
-  if (message.text.trim().startsWith("/start") || message.text.trim() === "/whoami") {
+  if (text.startsWith("/start") || text === "/whoami") {
     await sendTelegramMessage(
       chatId,
       `Привет! Твой chat_id: ${chatId}\n\nПопроси админа добавить этот id в TELEGRAM_OWNER_CHAT_ID, чтобы бот тебя слушал.`,
@@ -79,25 +115,187 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  if (message.text.trim().startsWith("/help")) {
+  if (text.startsWith("/help")) {
+    await sendTelegramMessage(chatId, HELP_TEXT);
+    return NextResponse.json({ ok: true });
+  }
+
+  const supabase = getSupabaseAdmin();
+
+  // ---------- /expense ----------
+  if (text.startsWith("/expense")) {
+    const args = text.slice("/expense".length).trim();
+    if (!args) {
+      await sendTelegramMessage(
+        chatId,
+        "Формат: /expense <сумма> <категория> [описание]\nПример: /expense 1500 продукты молоко хлеб",
+      );
+      return NextResponse.json({ ok: true });
+    }
+    const parts = args.split(/\s+/);
+    const amount = Number(parts[0]?.replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      await sendTelegramMessage(
+        chatId,
+        "Не понял сумму. Формат: /expense 1500 продукты [описание]",
+      );
+      return NextResponse.json({ ok: true });
+    }
+    const category = parts[1] ?? "Прочее";
+    const description = parts.slice(2).join(" ") || null;
+
+    const { error } = await supabase.from("expenses").insert({
+      id: generateId(),
+      user_id: ownerUserId,
+      date: todayIsoInTz(getOwnerTz()),
+      category,
+      description,
+      amount,
+      created_at: new Date().toISOString(),
+    });
+    if (error) {
+      console.error("[telegram webhook] expense error", error);
+      await sendTelegramMessage(chatId, `Ошибка: ${error.message}`);
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+    const desc = description ? ` · ${description}` : "";
     await sendTelegramMessage(
       chatId,
-      [
-        "Просто напиши задачу обычным текстом.",
-        "Понимаю даты и время:",
-        "• Купить хлеб завтра в 18:00",
-        "• Позвонить маме в пятницу",
-        "• Отчёт 15 мая",
-        "",
-        "Команды:",
-        "/whoami — показать твой chat_id",
-        "/help — эта справка",
-      ].join("\n"),
+      `💸 Записал трату: ${amount} ₽ · ${category}${desc}`,
     );
     return NextResponse.json({ ok: true });
   }
 
-  // Parse and create task.
+  // ---------- /idea ----------
+  if (text.startsWith("/idea")) {
+    const args = text.slice("/idea".length).trim();
+    if (!args) {
+      await sendTelegramMessage(
+        chatId,
+        "Формат: /idea <текст или ссылка>\nПример: /idea https://example.com интересная статья",
+      );
+      return NextResponse.json({ ok: true });
+    }
+    const urlMatch = args.match(/(https?:\/\/[^\s]+)/);
+    const url = urlMatch ? urlMatch[1] : null;
+    let title = url ? args.replace(url, "").trim() : args;
+    if (!title) title = url ?? "Без названия";
+
+    // Find or create a default folder.
+    const { data: folders } = await supabase
+      .from("folders")
+      .select("id")
+      .eq("user_id", ownerUserId)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    let folderId = folders?.[0]?.id as string | undefined;
+    if (!folderId) {
+      folderId = generateId();
+      const { error: folderErr } = await supabase.from("folders").insert({
+        id: folderId,
+        user_id: ownerUserId,
+        name: "Идеи",
+        emoji: "💡",
+        created_at: new Date().toISOString(),
+      });
+      if (folderErr) {
+        console.error("[telegram webhook] folder error", folderErr);
+        await sendTelegramMessage(chatId, `Ошибка: ${folderErr.message}`);
+        return NextResponse.json({ ok: false, error: folderErr.message }, { status: 500 });
+      }
+    }
+
+    const { error } = await supabase.from("ideas").insert({
+      id: generateId(),
+      user_id: ownerUserId,
+      folder_id: folderId,
+      title,
+      url,
+      created_at: new Date().toISOString(),
+    });
+    if (error) {
+      console.error("[telegram webhook] idea error", error);
+      await sendTelegramMessage(chatId, `Ошибка: ${error.message}`);
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+    await sendTelegramMessage(chatId, `💡 Записал идею: ${title}`);
+    return NextResponse.json({ ok: true });
+  }
+
+  // ---------- /word ----------
+  if (text.startsWith("/word")) {
+    const args = text.slice("/word".length).trim();
+    if (!args) {
+      await sendTelegramMessage(
+        chatId,
+        "Формат: /word <слово> [- перевод]\nПример: /word resilience - стойкость",
+      );
+      return NextResponse.json({ ok: true });
+    }
+    let english: string;
+    let translation: string | null;
+    if (args.includes(" - ")) {
+      const idx = args.indexOf(" - ");
+      english = args.slice(0, idx).trim();
+      translation = args.slice(idx + 3).trim() || null;
+    } else {
+      const sp = args.indexOf(" ");
+      if (sp === -1) {
+        english = args;
+        translation = null;
+      } else {
+        english = args.slice(0, sp).trim();
+        translation = args.slice(sp + 1).trim() || null;
+      }
+    }
+    if (!english) {
+      await sendTelegramMessage(chatId, "Не понял слово.");
+      return NextResponse.json({ ok: true });
+    }
+
+    // Find or create a "Из Telegram" lesson.
+    const { data: lessons } = await supabase
+      .from("lessons")
+      .select("id")
+      .eq("user_id", ownerUserId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    let lessonId = lessons?.[0]?.id as string | undefined;
+    if (!lessonId) {
+      lessonId = generateId();
+      const { error: lessonErr } = await supabase.from("lessons").insert({
+        id: lessonId,
+        user_id: ownerUserId,
+        title: "Из Telegram",
+        created_at: new Date().toISOString(),
+      });
+      if (lessonErr) {
+        console.error("[telegram webhook] lesson error", lessonErr);
+        await sendTelegramMessage(chatId, `Ошибка: ${lessonErr.message}`);
+        return NextResponse.json({ ok: false, error: lessonErr.message }, { status: 500 });
+      }
+    }
+
+    const { error } = await supabase.from("words").insert({
+      id: generateId(),
+      user_id: ownerUserId,
+      lesson_id: lessonId,
+      english,
+      translation,
+      srs_box: 1,
+      created_at: new Date().toISOString(),
+    });
+    if (error) {
+      console.error("[telegram webhook] word error", error);
+      await sendTelegramMessage(chatId, `Ошибка: ${error.message}`);
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+    const tr = translation ? ` — ${translation}` : "";
+    await sendTelegramMessage(chatId, `🇬🇧 Добавил слово: ${english}${tr}`);
+    return NextResponse.json({ ok: true });
+  }
+
+  // ---------- default: parse as task ----------
   const parsed = parseTask(message.text);
   if (!parsed.title) {
     await sendTelegramMessage(chatId, "Не понял текст задачи 🤔");
@@ -108,7 +306,7 @@ export async function POST(req: Request) {
   // Vercel runs in UTC, so resolve "today" in the owner's timezone (default Moscow).
   let dueDate = parsed.dueDate;
   if (!dueDate && parsed.dueTime) {
-    const tz = process.env.OWNER_TIMEZONE || "Europe/Moscow";
+    const tz = getOwnerTz();
     const fmt = new Intl.DateTimeFormat("en-CA", {
       timeZone: tz,
       year: "numeric",
@@ -136,7 +334,6 @@ export async function POST(req: Request) {
     dueDate = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   }
 
-  const supabase = getSupabaseAdmin();
   const id = generateId();
   const { error } = await supabase.from("tasks").insert({
     id,
