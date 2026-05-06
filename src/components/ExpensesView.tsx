@@ -44,6 +44,26 @@ function currentMonthKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+// Категории, которые всегда подсказываются в данной подвкладке
+// (даже если по ним ещё нет расходов).
+const BUCKET_DEFAULT_CATEGORIES: Record<ExpenseBucket, string[]> = {
+  home: [],
+  other: ["приход"],
+};
+
+// Категории, которые нельзя предлагать в данной подвкладке —
+// например, «Дом» и «земля» относятся к стройке и в «Другое» лезть не должны.
+const BUCKET_HIDDEN_CATEGORIES: Record<ExpenseBucket, string[]> = {
+  home: [],
+  other: ["дом", "земля"],
+};
+
+// Подкатегории, которые подсказываются, если основная категория совпадает.
+// Ключи в нижнем регистре для нечувствительного к регистру поиска.
+const CATEGORY_DEFAULT_SUBCATEGORIES: Record<string, string[]> = {
+  "приход": ["А", "Т"],
+};
+
 export default function ExpensesView({
   expenses,
   onAdd,
@@ -65,10 +85,38 @@ export default function ExpensesView({
   );
 
   const categories = useMemo(() => {
-    const set = new Set<string>();
+    const set = new Set<string>(BUCKET_DEFAULT_CATEGORIES[bucket]);
     for (const e of bucketExpenses) set.add(e.category);
-    return [...set].sort();
+    const hidden = new Set(
+      BUCKET_HIDDEN_CATEGORIES[bucket].map((s) => s.toLowerCase()),
+    );
+    return [...set]
+      .filter((c) => !hidden.has(c.toLowerCase()))
+      .sort((a, b) => a.localeCompare(b, "ru"));
+  }, [bucketExpenses, bucket]);
+
+  const subcategoriesByCategory = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    // Сначала захардкоженные дефолты для известных категорий.
+    for (const [cat, subs] of Object.entries(CATEGORY_DEFAULT_SUBCATEGORIES)) {
+      map.set(cat.toLowerCase(), new Set(subs));
+    }
+    // Потом то, что пользователь уже использовал в этом bucket.
+    for (const e of bucketExpenses) {
+      if (!e.subcategory) continue;
+      const key = e.category.toLowerCase();
+      const set = map.get(key) ?? new Set<string>();
+      set.add(e.subcategory);
+      map.set(key, set);
+    }
+    return map;
   }, [bucketExpenses]);
+
+  function getSubcategorySuggestions(category: string): string[] {
+    const set = subcategoriesByCategory.get(category.trim().toLowerCase());
+    if (!set) return [];
+    return [...set].sort((a, b) => a.localeCompare(b, "ru"));
+  }
 
   const months = useMemo(() => {
     const set = new Set<string>();
@@ -234,6 +282,7 @@ export default function ExpensesView({
           <NewExpenseForm
             bucket={bucket}
             categories={categories}
+            getSubcategorySuggestions={getSubcategorySuggestions}
             onSubmit={(e) => onAdd(e)}
             generateId={generateId}
           />
@@ -243,7 +292,7 @@ export default function ExpensesView({
       <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
           <h3 className="mr-auto text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Расходы — {filtered.length} {declineRows(filtered.length)}
+            {filtered.length} {declineRows(filtered.length)}
           </h3>
           <select
             value={filterMonth}
@@ -296,6 +345,7 @@ export default function ExpensesView({
                     <ExpenseInlineEdit
                       expense={e}
                       categories={categories}
+                      getSubcategorySuggestions={getSubcategorySuggestions}
                       onSave={(patch) => {
                         onUpdate(e.id, patch);
                         setEditingId(null);
@@ -371,6 +421,7 @@ export default function ExpensesView({
                         key={e.id}
                         expense={e}
                         categories={categories}
+                        getSubcategorySuggestions={getSubcategorySuggestions}
                         onSave={(patch) => {
                           onUpdate(e.id, patch);
                           setEditingId(null);
@@ -413,11 +464,13 @@ export default function ExpensesView({
 function NewExpenseForm({
   bucket,
   categories,
+  getSubcategorySuggestions,
   onSubmit,
   generateId,
 }: {
   bucket: ExpenseBucket;
   categories: string[];
+  getSubcategorySuggestions: (category: string) => string[];
   onSubmit: (e: Expense) => void;
   generateId: () => string;
 }) {
@@ -483,15 +536,17 @@ function NewExpenseForm({
           type="text"
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          list="expense-categories"
-          placeholder="Дом, Земля…"
+          {...(bucket === "home" ? { list: "expense-categories" } : {})}
+          placeholder={bucket === "home" ? "Дом, Земля…" : "напиши категорию"}
           className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
         />
-        <datalist id="expense-categories">
-          {categories.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
+        {bucket === "home" && (
+          <datalist id="expense-categories">
+            {categories.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        )}
       </div>
       <div>
         <label className="mb-0.5 block text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
@@ -501,9 +556,17 @@ function NewExpenseForm({
           type="text"
           value={subcategory}
           onChange={(e) => setSubcategory(e.target.value)}
-          placeholder="Окна, Кирпич…"
+          {...(bucket === "home" ? { list: "expense-subcategories" } : {})}
+          placeholder={bucket === "home" ? "Окна, Кирпич…" : "напиши подкатегорию"}
           className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
         />
+        {bucket === "home" && (
+          <datalist id="expense-subcategories">
+            {getSubcategorySuggestions(category).map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        )}
       </div>
       <div>
         <label className="mb-0.5 block text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
@@ -571,12 +634,14 @@ function ExpenseRow({
 function ExpenseEditRow({
   expense,
   categories,
+  getSubcategorySuggestions,
   onSave,
   onDelete,
   onCancel,
 }: {
   expense: Expense;
   categories: string[];
+  getSubcategorySuggestions: (category: string) => string[];
   onSave: (patch: Partial<Expense>) => void;
   onDelete: () => void;
   onCancel: () => void;
@@ -615,22 +680,32 @@ function ExpenseEditRow({
           type="text"
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          list="expense-categories"
+          {...(expense.bucket === "home" ? { list: "expense-categories" } : {})}
           className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
         />
-        <datalist id="expense-categories">
-          {categories.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
+        {expense.bucket === "home" && (
+          <datalist id="expense-categories">
+            {categories.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        )}
       </td>
       <td className="px-3 py-2 align-top">
         <input
           type="text"
           value={subcategory}
           onChange={(e) => setSubcategory(e.target.value)}
+          {...(expense.bucket === "home" ? { list: "expense-subcategories" } : {})}
           className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
         />
+        {expense.bucket === "home" && (
+          <datalist id="expense-subcategories">
+            {getSubcategorySuggestions(category).map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        )}
       </td>
       <td className="px-3 py-2 align-top">
         <input
@@ -681,12 +756,14 @@ function ExpenseEditRow({
 function ExpenseInlineEdit({
   expense,
   categories,
+  getSubcategorySuggestions,
   onSave,
   onDelete,
   onCancel,
 }: {
   expense: Expense;
   categories: string[];
+  getSubcategorySuggestions: (category: string) => string[];
   onSave: (patch: Partial<Expense>) => void;
   onDelete: () => void;
   onCancel: () => void;
@@ -730,16 +807,25 @@ function ExpenseInlineEdit({
       </div>
       <div>
         <label className={labelCls}>Категория</label>
-        <input type="text" value={category} onChange={(e) => setCategory(e.target.value)} list="expense-categories" className={inputCls} />
-        <datalist id="expense-categories">
-          {categories.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
+        <input type="text" value={category} onChange={(e) => setCategory(e.target.value)} {...(expense.bucket === "home" ? { list: "expense-categories" } : {})} className={inputCls} />
+        {expense.bucket === "home" && (
+          <datalist id="expense-categories">
+            {categories.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        )}
       </div>
       <div>
         <label className={labelCls}>Подкатегория</label>
-        <input type="text" value={subcategory} onChange={(e) => setSubcategory(e.target.value)} className={inputCls} />
+        <input type="text" value={subcategory} onChange={(e) => setSubcategory(e.target.value)} {...(expense.bucket === "home" ? { list: "expense-subcategories" } : {})} className={inputCls} />
+        {expense.bucket === "home" && (
+          <datalist id="expense-subcategories">
+            {getSubcategorySuggestions(category).map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        )}
       </div>
       <div>
         <label className={labelCls}>Описание</label>
