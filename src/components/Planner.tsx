@@ -405,22 +405,28 @@ export default function Planner({ session }: Props) {
     });
   }, [tagFilteredTasks, search, isSearching]);
 
+  // Recurring lessons (English, sport) clutter the dateless list — keep them
+  // in calendar / upcoming only.
+  const DATELESS_HIDDEN_TAGS = useMemo(() => new Set(["английский", "спорт"]), []);
+
   const allTasks = useMemo(
     () =>
-      [...filteredTasks].sort((a, b) => {
-        if (a.status !== b.status) return a.status === "done" ? 1 : -1;
-        const ap = a.priority === "high" ? 0 : 1;
-        const bp = b.priority === "high" ? 0 : 1;
-        if (ap !== bp) return ap - bp;
-        const aHas = a.dueDate ? 1 : 0;
-        const bHas = b.dueDate ? 1 : 0;
-        if (aHas !== bHas) return aHas - bHas;
-        if (a.dueDate && b.dueDate && a.dueDate !== b.dueDate) {
-          return a.dueDate.localeCompare(b.dueDate);
-        }
-        return a.createdAt.localeCompare(b.createdAt);
-      }),
-    [filteredTasks],
+      filteredTasks
+        .filter((t) => !t.tags.some((tag) => DATELESS_HIDDEN_TAGS.has(tag.toLowerCase())))
+        .sort((a, b) => {
+          if (a.status !== b.status) return a.status === "done" ? 1 : -1;
+          const ap = a.priority === "high" ? 0 : 1;
+          const bp = b.priority === "high" ? 0 : 1;
+          if (ap !== bp) return ap - bp;
+          const aHas = a.dueDate ? 1 : 0;
+          const bHas = b.dueDate ? 1 : 0;
+          if (aHas !== bHas) return aHas - bHas;
+          if (a.dueDate && b.dueDate && a.dueDate !== b.dueDate) {
+            return a.dueDate.localeCompare(b.dueDate);
+          }
+          return a.createdAt.localeCompare(b.createdAt);
+        }),
+    [filteredTasks, DATELESS_HIDDEN_TAGS],
   );
 
   // Helper: try to sync a mutation; if it fails, push to offline queue.
