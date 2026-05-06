@@ -5,6 +5,7 @@ import type { Anniversary } from "@/types/anniversary";
 import type { Reminder, ReminderMode, Task } from "@/types/task";
 import { fromISODate, formatHumanDate } from "@/lib/dates";
 import { getOccurrencesInRange } from "@/lib/anniversaries";
+import { getHoliday } from "@/lib/holidays";
 import PriorityFlag from "./PriorityFlag";
 import ReminderButton from "./ReminderButton";
 import SnoozeMenu from "./SnoozeMenu";
@@ -61,6 +62,8 @@ export default function TaskList({
     return occ.get(selectedDate) ?? [];
   }, [anniversaries, selectedDate]);
 
+  const holiday = useMemo(() => getHoliday(selectedDate), [selectedDate]);
+
   const pending = dayTasks.filter((t) => t.status !== "done");
   const done = dayTasks.filter((t) => t.status === "done");
   const total = dayTasks.length;
@@ -79,6 +82,18 @@ export default function TaskList({
               : `${total} ${declineTasks(total)}`}
         </span>
       </div>
+
+      {holiday && (
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/40 dark:bg-emerald-950/30">
+          <span className="text-base leading-none">⭐</span>
+          <span className="flex-1 truncate text-sm font-medium text-emerald-900 dark:text-emerald-200">
+            {holiday}
+          </span>
+          <span className="text-[10px] uppercase tracking-wide text-emerald-700/70 dark:text-emerald-300/70">
+            праздник
+          </span>
+        </div>
+      )}
 
       {dayAnniversaries.length > 0 && (
         <ul className="mb-2 space-y-1">
@@ -105,7 +120,7 @@ export default function TaskList({
         </ul>
       )}
 
-      {total === 0 && dayAnniversaries.length === 0 ? (
+      {total === 0 && dayAnniversaries.length === 0 && !holiday ? (
         <p className="py-6 text-center text-sm text-zinc-400 dark:text-zinc-600">
           Свободный день. Можно добавить задачу справа.
         </p>
