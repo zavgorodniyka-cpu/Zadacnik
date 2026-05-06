@@ -18,6 +18,15 @@ type DbRow = {
   created_at: string;
 };
 
+type DbTaskRow = {
+  id: string;
+  title: string;
+  priority: string | null;
+  due_date: string | null;
+  due_time: string | null;
+  end_time: string | null;
+};
+
 function rowToAnniversary(r: DbRow): Anniversary {
   return {
     id: r.id,
@@ -77,19 +86,29 @@ export async function GET(req: Request) {
   const tomorrowIso = isoFromDate(tomorrow);
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("anniversaries")
-    .select("*")
-    .eq("user_id", ownerUserId);
-  if (error) {
-    console.error("[cron/notify] fetch error", error);
-    return NextResponse.json(
-      { ok: false, error: error.message },
-      { status: 500 },
-    );
+
+  const [{ data: anniversaryData, error: aErr }, { data: taskData, error: tErr }] =
+    await Promise.all([
+      supabase.from("anniversaries").select("*").eq("user_id", ownerUserId),
+      supabase
+        .from("tasks")
+        .select("id, title, priority, due_date, due_time, end_time")
+        .eq("user_id", ownerUserId)
+        .eq("priority", "high")
+        .neq("status", "done")
+        .in("due_date", [todayIso, tomorrowIso]),
+    ]);
+  if (aErr) {
+    console.error("[cron/notify] anniversaries fetch error", aErr);
+    return NextResponse.json({ ok: false, error: aErr.message }, { status: 500 });
+  }
+  if (tErr) {
+    console.error("[cron/notify] tasks fetch error", tErr);
+    return NextResponse.json({ ok: false, error: tErr.message }, { status: 500 });
   }
 
-  const items = ((data ?? []) as DbRow[]).map(rowToAnniversary);
+  const items = ((anniversaryData ?? []) as DbRow[]).map(rowToAnniversary);
+  const tasks = (taskData ?? []) as DbTaskRow[];
 
   const todayItems: Anniversary[] = [];
   const tomorrowDayBeforeItems: Anniversary[] = [];
@@ -106,24 +125,41 @@ export async function GET(req: Request) {
     }
   }
 
-  if (todayItems.length === 0 && tomorrowDayBeforeItems.length === 0) {
+  const todayTasks = tasks.filter((t) => t.due_date === todayIso);
+  const tomorrowTasks = tasks.filter((t) => t.due_date === tomorrowIso);
+
+  if (
+    todayItems.length === 0 &&
+    tomorrowDayBeforeItems.length === 0 &&
+    todayTasks.length === 0 &&
+    tomorrowTasks.length === 0
+  ) {
     return NextResponse.json({ ok: true, sent: 0 });
   }
 
+  function taskLine(t: DbTaskRow): string {
+    const time = t.due_time
+      ? ` (${t.due_time}${t.end_time ? `–${t.end_time}` : ""})`
+      : "";
+    return `• ‼️ ${t.title}${time}`;
+  }
+
   const lines: string[] = [];
-  if (todayItems.length > 0) {
+  if (todayItems.length > 0 || todayTasks.length > 0) {
     lines.push("🔔 Сегодня:");
     for (const a of todayItems) {
       const time = a.notify ? ` (${a.notify.time})` : "";
       lines.push(`• ${a.emoji ? a.emoji + " " : ""}${a.title}${time}`);
     }
+    for (const t of todayTasks) lines.push(taskLine(t));
   }
-  if (tomorrowDayBeforeItems.length > 0) {
+  if (tomorrowDayBeforeItems.length > 0 || tomorrowTasks.length > 0) {
     if (lines.length > 0) lines.push("");
     lines.push("📅 Завтра:");
     for (const a of tomorrowDayBeforeItems) {
       lines.push(`• ${a.emoji ? a.emoji + " " : ""}${a.title}`);
     }
+    for (const t of tomorrowTasks) lines.push(taskLine(t));
   }
 
   await sendTelegramMessage(ownerChatId, lines.join("\n"));
@@ -132,6 +168,8 @@ export async function GET(req: Request) {
     ok: true,
     todayItems: todayItems.length,
     tomorrowDayBeforeItems: tomorrowDayBeforeItems.length,
+    todayTasks: todayTasks.length,
+    tomorrowTasks: tomorrowTasks.length,
     sent: 1,
   });
 }
