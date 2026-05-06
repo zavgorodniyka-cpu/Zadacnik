@@ -74,6 +74,7 @@ export default function ExpensesView({
 }: Props) {
   const [bucket, setBucket] = useState<ExpenseBucket>("home");
   const [filterCategory, setFilterCategory] = useState<string>("");
+  const [filterSubcategory, setFilterSubcategory] = useState<string>("");
   const [filterMonth, setFilterMonth] = useState<string>(""); // "" = все месяцы, иначе "YYYY-MM"
   const [editingId, setEditingId] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
@@ -128,14 +129,31 @@ export default function ExpensesView({
   // Reset filters when switching sub-tab — categories/months differ between buckets.
   useEffect(() => {
     setFilterCategory("");
+    setFilterSubcategory("");
     setFilterMonth("");
     setEditingId(null);
   }, [bucket]);
+
+  // When category changes, current subcategory may not exist within it — drop it.
+  useEffect(() => {
+    setFilterSubcategory("");
+  }, [filterCategory]);
+
+  // Subcategories — все подкатегории в bucket'е, опционально сужаются до выбранной категории.
+  const subcategoryOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of bucketExpenses) {
+      if (filterCategory && e.category !== filterCategory) continue;
+      if (e.subcategory && e.subcategory.trim()) set.add(e.subcategory);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "ru"));
+  }, [bucketExpenses, filterCategory]);
 
   const filtered = useMemo(() => {
     return bucketExpenses
       .filter((e) => {
         if (filterCategory && e.category !== filterCategory) return false;
+        if (filterSubcategory && (e.subcategory ?? "") !== filterSubcategory) return false;
         if (filterMonth && !e.date.startsWith(filterMonth)) return false;
         return true;
       })
@@ -143,14 +161,27 @@ export default function ExpensesView({
         if (a.date !== b.date) return a.date.localeCompare(b.date);
         return a.createdAt.localeCompare(b.createdAt);
       });
-  }, [bucketExpenses, filterCategory, filterMonth]);
+  }, [bucketExpenses, filterCategory, filterSubcategory, filterMonth]);
 
   const total = useMemo(
     () => filtered.reduce((s, e) => s + e.amount, 0),
     [filtered],
   );
 
+  // В «Другое» диаграмма всегда по подкатегориям (категория там одна-две, разбивка
+  // по ним мало что даёт). В «Дом» — категории с детализацией по клику.
   const chartGroups = useMemo(() => {
+    if (bucket === "other") {
+      const subs = new Map<string, number>();
+      for (const e of filtered) {
+        const subKey = e.subcategory && e.subcategory.trim() ? e.subcategory : "—";
+        subs.set(subKey, (subs.get(subKey) ?? 0) + e.amount);
+      }
+      return [...subs.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([sk, sv]) => ({ key: sk, label: sk, value: sv, children: undefined }));
+    }
+
     const map = new Map<
       string,
       { value: number; subs: Map<string, number> }
@@ -175,7 +206,9 @@ export default function ExpensesView({
           .sort((a, b) => b[1] - a[1])
           .map(([sk, sv]) => ({ key: `${key}|${sk}`, label: sk, value: sv })),
       }));
-  }, [filtered]);
+  }, [filtered, bucket]);
+
+  const chartTitle = bucket === "other" ? "По подкатегориям" : "По категориям";
 
   function handleImportClick() {
     fileRef.current?.click();
@@ -210,6 +243,7 @@ export default function ExpensesView({
 
   function clearFilters() {
     setFilterCategory("");
+    setFilterSubcategory("");
     setFilterMonth("");
   }
 
@@ -273,7 +307,7 @@ export default function ExpensesView({
       )}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr] lg:items-start">
-        <ExpenseChart groups={chartGroups} formatValue={(n) => RUB.format(n)} />
+        <ExpenseChart title={chartTitle} groups={chartGroups} formatValue={(n) => RUB.format(n)} />
 
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           <h3 className="mb-3 text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
@@ -318,7 +352,21 @@ export default function ExpensesView({
               </option>
             ))}
           </select>
-          {(filterCategory || filterMonth) && (
+          {bucket === "other" && subcategoryOptions.length > 0 && (
+            <select
+              value={filterSubcategory}
+              onChange={(e) => setFilterSubcategory(e.target.value)}
+              className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
+            >
+              <option value="">Все подкатегории</option>
+              {subcategoryOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          )}
+          {(filterCategory || filterSubcategory || filterMonth) && (
             <button
               type="button"
               onClick={clearFilters}

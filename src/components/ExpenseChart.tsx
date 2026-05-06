@@ -12,6 +12,7 @@ type Props = {
   // Top-level groups; each can have nested children (subcategories)
   groups: Array<{ key: string; label: string; value: number; children?: Slice[] }>;
   formatValue: (n: number) => string;
+  title?: string;
 };
 
 const PALETTE = [
@@ -53,7 +54,7 @@ function arcPath(
   return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y} Z`;
 }
 
-export default function ExpenseChart({ groups, formatValue }: Props) {
+export default function ExpenseChart({ groups, formatValue, title = "По категориям" }: Props) {
   const [drillKey, setDrillKey] = useState<string | null>(null);
 
   const total = useMemo(
@@ -100,7 +101,7 @@ export default function ExpenseChart({ groups, formatValue }: Props) {
     <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          {drillGroup ? `${drillGroup.label} — детализация` : "По категориям"}
+          {drillGroup ? `${drillGroup.label} — детализация` : title}
         </h2>
         {drillGroup && (
           <button
