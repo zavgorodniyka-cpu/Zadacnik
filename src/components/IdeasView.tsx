@@ -13,6 +13,8 @@ import {
   type UploadedFile,
 } from "@/lib/db/storage";
 
+type SaveResult = { ok: true } | { ok: false; error: string };
+
 type Props = {
   folders: Folder[];
   items: IdeaItem[];
@@ -20,8 +22,8 @@ type Props = {
   onAddFolder: (folder: Folder) => void;
   onUpdateFolder: (id: string, patch: Partial<Folder>) => void;
   onDeleteFolder: (id: string) => void;
-  onAddItem: (item: IdeaItem) => void;
-  onUpdateItem: (id: string, patch: Partial<IdeaItem>) => void;
+  onAddItem: (item: IdeaItem) => Promise<SaveResult>;
+  onUpdateItem: (id: string, patch: Partial<IdeaItem>) => Promise<SaveResult>;
   onDeleteItem: (id: string) => void;
   generateId: () => string;
 };
@@ -352,8 +354,8 @@ function ItemsPanel({
   folder: Folder | null;
   items: IdeaItem[];
   userId: string;
-  onAdd: (item: IdeaItem) => void;
-  onUpdate: (id: string, patch: Partial<IdeaItem>) => void;
+  onAdd: (item: IdeaItem) => Promise<SaveResult>;
+  onUpdate: (id: string, patch: Partial<IdeaItem>) => Promise<SaveResult>;
   onDelete: (id: string) => void;
   generateId: () => string;
 }) {
@@ -396,9 +398,10 @@ function ItemsPanel({
         <NewItemForm
           folderId={folder.id}
           userId={userId}
-          onSubmit={(item) => {
-            onAdd(item);
-            setAdding(false);
+          onSubmit={async (item) => {
+            const result = await onAdd(item);
+            if (result.ok) setAdding(false);
+            return result;
           }}
           onCancel={() => setAdding(false)}
           generateId={generateId}
@@ -417,9 +420,10 @@ function ItemsPanel({
                 key={item.id}
                 item={item}
                 userId={userId}
-                onSave={(patch) => {
-                  onUpdate(item.id, patch);
-                  setEditingId(null);
+                onSave={async (patch) => {
+                  const result = await onUpdate(item.id, patch);
+                  if (result.ok) setEditingId(null);
+                  return result;
                 }}
                 onDelete={() => {
                   if (item.filePath) {
@@ -453,7 +457,7 @@ function NewItemForm({
 }: {
   folderId: string;
   userId: string;
-  onSubmit: (item: IdeaItem) => void;
+  onSubmit: (item: IdeaItem) => Promise<SaveResult>;
   onCancel: () => void;
   generateId: () => string;
 }) {
@@ -463,6 +467,8 @@ function NewItemForm({
   const [file, setFile] = useState<UploadedFile | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -493,11 +499,14 @@ function NewItemForm({
     onCancel();
   }
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = title.trim();
     if (!trimmed) return;
-    onSubmit({
+
+    setSaving(true);
+    setSaveError(null);
+    const result = await onSubmit({
       id: generateId(),
       folderId,
       title: trimmed,
@@ -509,6 +518,15 @@ function NewItemForm({
       fileMimeType: file?.mimeType,
       createdAt: new Date().toISOString(),
     });
+    setSaving(false);
+
+    if (!result.ok) {
+      // Файл (если был) остаётся в Storage и в форме — пользователь может
+      // повторить «Сохранить» или отменить (тогда файл удалится).
+      setSaveError(result.error);
+      return;
+    }
+
     setTitle("");
     setUrl("");
     setNotes("");
@@ -551,18 +569,24 @@ function NewItemForm({
         onRemove={removeFile}
       />
 
+      {saveError && (
+        <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+          Не удалось сохранить: {saveError}. Попробуй ещё раз — файл (если есть) уже загружен.
+        </div>
+      )}
+
       <div className="mt-2 flex gap-2">
         <button
           type="submit"
-          disabled={!title.trim() || uploading}
+          disabled={!title.trim() || uploading || saving}
           className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
         >
-          Сохранить
+          {saving ? "Сохраняю…" : "Сохранить"}
         </button>
         <button
           type="button"
           onClick={handleCancel}
-          disabled={uploading}
+          disabled={uploading || saving}
           className="rounded-lg px-2 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800"
         >
           Отмена
@@ -786,7 +810,7 @@ function ItemEditRow({
 }: {
   item: IdeaItem;
   userId: string;
-  onSave: (patch: Partial<IdeaItem>) => void;
+  onSave: (patch: Partial<IdeaItem>) => Promise<SaveResult>;
   onDelete: () => void;
   onCancel: () => void;
 }) {
@@ -806,6 +830,8 @@ function ItemEditRow({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [originalPath] = useState<string | undefined>(item.filePath);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -838,11 +864,9 @@ function ItemEditRow({
 
   async function handleSave() {
     if (!title.trim()) return;
-    // If user replaced the original file with a different one, delete the old one.
-    if (originalPath && file?.path !== originalPath) {
-      await deleteIdeaFile(originalPath).catch(() => {});
-    }
-    onSave({
+    setSaving(true);
+    setSaveError(null);
+    const result = await onSave({
       title: title.trim(),
       url: url.trim() || undefined,
       notes: notes.trim() || undefined,
@@ -851,6 +875,15 @@ function ItemEditRow({
       fileSize: file?.size,
       fileMimeType: file?.mimeType,
     });
+    setSaving(false);
+    if (!result.ok) {
+      setSaveError(result.error);
+      return;
+    }
+    // Только после успешной записи в БД старый файл больше не нужен.
+    if (originalPath && file?.path !== originalPath) {
+      await deleteIdeaFile(originalPath).catch(() => {});
+    }
   }
 
   async function handleCancel() {
@@ -893,19 +926,25 @@ function ItemEditRow({
         onRemove={removeFile}
       />
 
+      {saveError && (
+        <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+          Не удалось сохранить: {saveError}. Попробуй ещё раз.
+        </div>
+      )}
+
       <div className="mt-2 flex gap-2">
         <button
           type="button"
           onClick={handleSave}
-          disabled={!title.trim() || uploading}
+          disabled={!title.trim() || uploading || saving}
           className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
         >
-          Сохранить
+          {saving ? "Сохраняю…" : "Сохранить"}
         </button>
         <button
           type="button"
           onClick={handleCancel}
-          disabled={uploading}
+          disabled={uploading || saving}
           className="rounded-lg px-2 py-1.5 text-sm text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800"
         >
           Отмена

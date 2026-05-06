@@ -58,6 +58,14 @@ CREATE TABLE IF NOT EXISTS public.ideas (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Миграция: file_* колонки были добавлены позже исходного CREATE TABLE.
+-- Идемпотентно — для существующих БД дотягивает недостающие колонки.
+ALTER TABLE public.ideas
+  ADD COLUMN IF NOT EXISTS file_path text,
+  ADD COLUMN IF NOT EXISTS file_name text,
+  ADD COLUMN IF NOT EXISTS file_size bigint,
+  ADD COLUMN IF NOT EXISTS file_mime_type text;
+
 CREATE TABLE IF NOT EXISTS public.expenses (
   id text PRIMARY KEY,
   user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,

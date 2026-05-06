@@ -692,14 +692,49 @@ export default function Planner({ session }: Props) {
     syncOrQueue(() => dbDeleteFolder(id), { kind: "folder.delete", id });
   }
 
-  function handleAddIdea(item: IdeaItem) {
+  // Идеи могут содержать загруженные в Storage файлы — там данные ценные
+  // и тихий провал в офлайн-очередь недопустим. Пишем напрямую и возвращаем
+  // явный результат, чтобы форма могла показать ошибку и не дать потерять файл.
+  async function handleAddIdea(item: IdeaItem): Promise<{ ok: true } | { ok: false; error: string }> {
     setIdeas((prev) => [...prev, item]);
-    syncOrQueue(() => dbInsertIdea(item), { kind: "idea.insert", idea: item });
+    try {
+      await dbInsertIdea(item);
+      return { ok: true };
+    } catch (err) {
+      // Откатываем оптимистичное обновление, чтобы UI не показывал «фантом».
+      setIdeas((prev) => prev.filter((i) => i.id !== item.id));
+      const offline = typeof navigator !== "undefined" && !navigator.onLine;
+      if (offline) {
+        enqueueMutation({ kind: "idea.insert", idea: item });
+        setQueueLen(getQueueLength());
+        // В офлайне локально оставим, синхронизируется потом.
+        setIdeas((prev) => [...prev, item]);
+        return { ok: true };
+      }
+      logErr(err);
+      return { ok: false, error: err instanceof Error ? err.message : "Не удалось сохранить" };
+    }
   }
 
-  function handleUpdateIdea(id: string, patch: Partial<IdeaItem>) {
+  async function handleUpdateIdea(id: string, patch: Partial<IdeaItem>): Promise<{ ok: true } | { ok: false; error: string }> {
+    const before = ideas.find((i) => i.id === id);
     setIdeas((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
-    syncOrQueue(() => dbUpdateIdea(id, patch), { kind: "idea.update", id, patch });
+    try {
+      await dbUpdateIdea(id, patch);
+      return { ok: true };
+    } catch (err) {
+      if (before) setIdeas((prev) => prev.map((i) => (i.id === id ? before : i)));
+      const offline = typeof navigator !== "undefined" && !navigator.onLine;
+      if (offline) {
+        enqueueMutation({ kind: "idea.update", id, patch });
+        setQueueLen(getQueueLength());
+        // в офлайне восстановим оптимистичное обновление
+        setIdeas((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+        return { ok: true };
+      }
+      logErr(err);
+      return { ok: false, error: err instanceof Error ? err.message : "Не удалось сохранить" };
+    }
   }
 
   function handleDeleteIdea(id: string) {
@@ -735,6 +770,31 @@ export default function Planner({ session }: Props) {
     }
   }
 
+  function handleExport() {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      schemaVersion: 1,
+      userEmail,
+      tasks,
+      anniversaries,
+      folders,
+      ideas,
+      expenses,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `zadacnik-backup-${stamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
   if (!hydrated) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
@@ -760,6 +820,20 @@ export default function Planner({ session }: Props) {
         ? "bg-blue-500 text-white shadow-sm"
         : "text-zinc-600 hover:bg-orange-100 hover:text-orange-700 dark:text-zinc-400 dark:hover:bg-orange-950/40 dark:hover:text-orange-300",
     ].join(" ");
+
+  const exportBtn = (
+    <button
+      type="button"
+      onClick={handleExport}
+      title="Экспорт всех данных в JSON-файл"
+      aria-label="Экспорт"
+      className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+    >
+      <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M8 2v9m0 0l-3-3m3 3l3-3M3 13h10" />
+      </svg>
+    </button>
+  );
 
   const signOutBtn = (
     <button
@@ -821,6 +895,7 @@ export default function Planner({ session }: Props) {
               settings={notifySettings}
               onChange={setNotifySettings}
             />
+            {exportBtn}
             {signOutBtn}
             {addBtn(true)}
           </div>
@@ -849,6 +924,7 @@ export default function Planner({ session }: Props) {
               settings={notifySettings}
               onChange={setNotifySettings}
             />
+            {exportBtn}
             {signOutBtn}
             {addBtn(false)}
           </div>
