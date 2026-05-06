@@ -38,8 +38,10 @@ export default function DatelessList({
   onSetReminder,
 }: Props) {
   const [draft, setDraft] = useState("");
+  const [showDone, setShowDone] = useState(false);
 
-  const items = tasks;
+  const pending = tasks.filter((t) => t.status !== "done");
+  const done = tasks.filter((t) => t.status === "done");
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -95,26 +97,74 @@ export default function DatelessList({
         </div>
       </div>
 
-      {items.length === 0 ? (
+      {pending.length === 0 && done.length === 0 ? (
         <p className="py-3 text-sm text-zinc-400 dark:text-zinc-600">
           Пусто. Добавь дело — оно появится здесь.
         </p>
       ) : (
-        <ul className="max-h-[28rem] space-y-1 overflow-y-auto pr-1">
-          {items.map((t) => (
-            <Row
-              key={t.id}
-              task={t}
-              reminderDefaults={reminderDefaults}
-              onToggle={onToggle}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onSchedule={onSchedule}
-              onTogglePriority={onTogglePriority}
-              onSetReminder={onSetReminder}
-            />
-          ))}
-        </ul>
+        <div className="max-h-[28rem] overflow-y-auto pr-1">
+          {pending.length > 0 && (
+            <ul className="space-y-1">
+              {pending.map((t) => (
+                <Row
+                  key={t.id}
+                  task={t}
+                  reminderDefaults={reminderDefaults}
+                  onToggle={onToggle}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  onSchedule={onSchedule}
+                  onTogglePriority={onTogglePriority}
+                  onSetReminder={onSetReminder}
+                />
+              ))}
+            </ul>
+          )}
+
+          {done.length > 0 && (
+            <div className={pending.length > 0 ? "mt-2 border-t border-zinc-100 pt-2 dark:border-zinc-800" : ""}>
+              <button
+                type="button"
+                onClick={() => setShowDone((v) => !v)}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  className={[
+                    "h-3.5 w-3.5 transition",
+                    showDone ? "rotate-90" : "",
+                  ].join(" ")}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M6 4l5 4-5 4" />
+                </svg>
+                Выполненные ({done.length})
+              </button>
+
+              {showDone && (
+                <ul className="mt-1 space-y-1">
+                  {done.map((t) => (
+                    <Row
+                      key={t.id}
+                      task={t}
+                      reminderDefaults={reminderDefaults}
+                      onToggle={onToggle}
+                      onEdit={onEdit}
+                      onDelete={onDelete}
+                      onSchedule={onSchedule}
+                      onTogglePriority={onTogglePriority}
+                      onSetReminder={onSetReminder}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

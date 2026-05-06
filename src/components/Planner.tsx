@@ -410,9 +410,14 @@ export default function Planner({ session }: Props) {
   // in calendar / upcoming only.
   const DATELESS_HIDDEN_TAGS = useMemo(() => new Set(["английский", "спорт"]), []);
 
+  // «Список дел» — задачи без даты. При активном поиске показываем все
+  // совпавшие задачи (включая запланированные), чтобы быстро найти любую.
   const allTasks = useMemo(
-    () =>
-      filteredTasks
+    () => {
+      const base = isSearching
+        ? filteredTasks
+        : filteredTasks.filter((t) => !t.dueDate);
+      return base
         .filter((t) => !t.tags.some((tag) => DATELESS_HIDDEN_TAGS.has(tag.toLowerCase())))
         .sort((a, b) => {
           if (a.status !== b.status) return a.status === "done" ? 1 : -1;
@@ -426,8 +431,9 @@ export default function Planner({ session }: Props) {
             return a.dueDate.localeCompare(b.dueDate);
           }
           return a.createdAt.localeCompare(b.createdAt);
-        }),
-    [filteredTasks, DATELESS_HIDDEN_TAGS],
+        });
+    },
+    [filteredTasks, isSearching, DATELESS_HIDDEN_TAGS],
   );
 
   // Helper: try to sync a mutation; if it fails, push to offline queue.
@@ -921,6 +927,7 @@ export default function Planner({ session }: Props) {
             />
             <TaskList
               tasks={filteredTasks}
+              anniversaries={anniversaries}
               selectedDate={selectedDate}
               reminderDefaults={reminderDefaults}
               onToggle={handleToggle}
@@ -929,6 +936,7 @@ export default function Planner({ session }: Props) {
               onTogglePriority={handleTogglePriority}
               onSnooze={handleSchedule}
               onSetReminder={handleSetReminder}
+              onAnniversaryClick={() => setView("reminders")}
             />
             <div className="hidden lg:block">
               <DayTimeline
