@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import type { Expense } from "@/types/expense";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Expense, ExpenseBucket } from "@/types/expense";
 import { todayISO } from "@/lib/dates";
 import { parseExpensesCsv } from "@/lib/expenses-import";
 import ExpenseChart from "./ExpenseChart";
@@ -21,9 +21,27 @@ const RUB = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 0,
 });
 
+const RU_MONTHS_FULL = [
+  "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+  "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+];
+
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-");
   return `${d}.${m}.${y.slice(2)}`;
+}
+
+function formatMonthKey(key: string): string {
+  // key is "YYYY-MM"
+  const [y, m] = key.split("-");
+  const monthIdx = parseInt(m, 10) - 1;
+  if (monthIdx < 0 || monthIdx > 11) return key;
+  return `${RU_MONTHS_FULL[monthIdx]} ${y}`;
+}
+
+function currentMonthKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 export default function ExpensesView({
@@ -34,32 +52,50 @@ export default function ExpensesView({
   onDelete,
   generateId,
 }: Props) {
+  const [bucket, setBucket] = useState<ExpenseBucket>("home");
   const [filterCategory, setFilterCategory] = useState<string>("");
-  const [filterFrom, setFilterFrom] = useState<string>("");
-  const [filterTo, setFilterTo] = useState<string>("");
+  const [filterMonth, setFilterMonth] = useState<string>(""); // "" = все месяцы, иначе "YYYY-MM"
   const [editingId, setEditingId] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const bucketExpenses = useMemo(
+    () => expenses.filter((e) => e.bucket === bucket),
+    [expenses, bucket],
+  );
+
   const categories = useMemo(() => {
     const set = new Set<string>();
-    for (const e of expenses) set.add(e.category);
+    for (const e of bucketExpenses) set.add(e.category);
     return [...set].sort();
-  }, [expenses]);
+  }, [bucketExpenses]);
+
+  const months = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of bucketExpenses) set.add(e.date.slice(0, 7));
+    set.add(currentMonthKey());
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [bucketExpenses]);
+
+  // Reset filters when switching sub-tab — categories/months differ between buckets.
+  useEffect(() => {
+    setFilterCategory("");
+    setFilterMonth("");
+    setEditingId(null);
+  }, [bucket]);
 
   const filtered = useMemo(() => {
-    return expenses
+    return bucketExpenses
       .filter((e) => {
         if (filterCategory && e.category !== filterCategory) return false;
-        if (filterFrom && e.date < filterFrom) return false;
-        if (filterTo && e.date > filterTo) return false;
+        if (filterMonth && !e.date.startsWith(filterMonth)) return false;
         return true;
       })
       .sort((a, b) => {
         if (a.date !== b.date) return a.date.localeCompare(b.date);
         return a.createdAt.localeCompare(b.createdAt);
       });
-  }, [expenses, filterCategory, filterFrom, filterTo]);
+  }, [bucketExpenses, filterCategory, filterMonth]);
 
   const total = useMemo(
     () => filtered.reduce((s, e) => s + e.amount, 0),
@@ -104,7 +140,7 @@ export default function ExpensesView({
     setImportMessage("Загружаю файл…");
     try {
       const text = await file.text();
-      const result = parseExpensesCsv(text);
+      const result = parseExpensesCsv(text, bucket);
       if (result.rows.length === 0) {
         setImportMessage(
           "Не нашёл строк для импорта. " +
@@ -126,20 +162,33 @@ export default function ExpensesView({
 
   function clearFilters() {
     setFilterCategory("");
-    setFilterFrom("");
-    setFilterTo("");
+    setFilterMonth("");
   }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <div>
+        <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
             Финансы
           </h2>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            Расходы по категориям с диаграммой и фильтрами
-          </p>
+          <div className="inline-flex items-center gap-1 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800">
+            {(["home", "other"] as const).map((b) => (
+              <button
+                key={b}
+                type="button"
+                onClick={() => setBucket(b)}
+                className={[
+                  "rounded-md px-3 py-1 text-xs font-medium transition",
+                  bucket === b
+                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
+                    : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+                ].join(" ")}
+              >
+                {b === "home" ? "Дом" : "Другое"}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -180,9 +229,10 @@ export default function ExpensesView({
 
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           <h3 className="mb-3 text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Добавить расход
+            Добавить расход — {bucket === "home" ? "Дом" : "Другое"}
           </h3>
           <NewExpenseForm
+            bucket={bucket}
             categories={categories}
             onSubmit={(e) => onAdd(e)}
             generateId={generateId}
@@ -196,6 +246,18 @@ export default function ExpensesView({
             Расходы — {filtered.length} {declineRows(filtered.length)}
           </h3>
           <select
+            value={filterMonth}
+            onChange={(e) => setFilterMonth(e.target.value)}
+            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
+          >
+            <option value="">Все месяцы</option>
+            {months.map((m) => (
+              <option key={m} value={m}>
+                {formatMonthKey(m)}
+              </option>
+            ))}
+          </select>
+          <select
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
             className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
@@ -207,20 +269,7 @@ export default function ExpensesView({
               </option>
             ))}
           </select>
-          <input
-            type="date"
-            value={filterFrom}
-            onChange={(e) => setFilterFrom(e.target.value)}
-            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
-          />
-          <span className="text-xs text-zinc-400 dark:text-zinc-600">—</span>
-          <input
-            type="date"
-            value={filterTo}
-            onChange={(e) => setFilterTo(e.target.value)}
-            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
-          />
-          {(filterCategory || filterFrom || filterTo) && (
+          {(filterCategory || filterMonth) && (
             <button
               type="button"
               onClick={clearFilters}
@@ -362,10 +411,12 @@ export default function ExpensesView({
 }
 
 function NewExpenseForm({
+  bucket,
   categories,
   onSubmit,
   generateId,
 }: {
+  bucket: ExpenseBucket;
   categories: string[];
   onSubmit: (e: Expense) => void;
   generateId: () => string;
@@ -384,6 +435,7 @@ function NewExpenseForm({
     onSubmit({
       id: generateId(),
       date,
+      bucket,
       category: cat,
       subcategory: subcategory.trim() || undefined,
       description: description.trim() || undefined,

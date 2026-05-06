@@ -1,6 +1,6 @@
 "use client";
 
-import type { Expense } from "@/types/expense";
+import type { Expense, ExpenseBucket } from "@/types/expense";
 import { generateId } from "./storage";
 
 const RU_MONTH_TO_NUM: Record<string, number> = {
@@ -91,7 +91,11 @@ export type ImportResult = {
 
 // Parses Russian Excel-exported CSV (semicolon-separated, BOM, possibly cyrillic month dates).
 // Splits parenthesised dates into separate rows with amount halved.
-export function parseExpensesCsv(text: string, defaultYear = 2026): ImportResult {
+export function parseExpensesCsv(
+  text: string,
+  bucket: ExpenseBucket = "home",
+  defaultYear = 2026,
+): ImportResult {
   const warnings: string[] = [];
   // Strip UTF-8 BOM
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
@@ -152,6 +156,7 @@ export function parseExpensesCsv(text: string, defaultYear = 2026): ImportResult
       rows.push({
         id: generateId(),
         date: dates[0],
+        bucket,
         category,
         subcategory: subcategory || undefined,
         description: description || undefined,
@@ -167,6 +172,7 @@ export function parseExpensesCsv(text: string, defaultYear = 2026): ImportResult
         rows.push({
           id: generateId(),
           date: d,
+          bucket,
           category,
           subcategory: subcategory || undefined,
           description:
@@ -184,13 +190,14 @@ export function parseExpensesCsv(text: string, defaultYear = 2026): ImportResult
 // Pre-baked seed for the user's existing house construction expenses (for first-time setup).
 export function seedHouseExpenses(): Expense[] {
   const createdAt = new Date().toISOString();
+  const bucket: ExpenseBucket = "home";
   return [
-    { id: generateId(), date: "2026-03-27", category: "Дом",     subcategory: "Проект",     description: undefined,                amount: 200000,  createdAt },
-    { id: generateId(), date: "2026-03-27", category: "Дом",     subcategory: "Дом",        description: "предоплата",             amount: 100000,  createdAt },
-    { id: generateId(), date: "2026-04-02", category: "Земля",   subcategory: "Участок",    description: "покупка",                amount: 5437350, createdAt },
-    { id: generateId(), date: "2026-04-10", category: "Земля",   subcategory: "Участок 2",  description: "покупка",                amount: 5437350, createdAt },
-    { id: generateId(), date: "2026-04-10", category: "Земля",   subcategory: "участок 1",  description: "чистка (часть 1)",       amount: 150000,  createdAt },
-    { id: generateId(), date: "2026-04-22", category: "Земля",   subcategory: "участок 1",  description: "чистка (часть 2)",       amount: 150000,  createdAt },
-    { id: generateId(), date: "2026-04-25", category: "Подъездная дорога", subcategory: undefined, description: undefined,         amount: 365100,  createdAt },
+    { id: generateId(), bucket, date: "2026-03-27", category: "Дом",     subcategory: "Проект",     description: undefined,                amount: 200000,  createdAt },
+    { id: generateId(), bucket, date: "2026-03-27", category: "Дом",     subcategory: "Дом",        description: "предоплата",             amount: 100000,  createdAt },
+    { id: generateId(), bucket, date: "2026-04-02", category: "Земля",   subcategory: "Участок",    description: "покупка",                amount: 5437350, createdAt },
+    { id: generateId(), bucket, date: "2026-04-10", category: "Земля",   subcategory: "Участок 2",  description: "покупка",                amount: 5437350, createdAt },
+    { id: generateId(), bucket, date: "2026-04-10", category: "Земля",   subcategory: "участок 1",  description: "чистка (часть 1)",       amount: 150000,  createdAt },
+    { id: generateId(), bucket, date: "2026-04-22", category: "Земля",   subcategory: "участок 1",  description: "чистка (часть 2)",       amount: 150000,  createdAt },
+    { id: generateId(), bucket, date: "2026-04-25", category: "Подъездная дорога", subcategory: undefined, description: undefined,         amount: 365100,  createdAt },
   ];
 }

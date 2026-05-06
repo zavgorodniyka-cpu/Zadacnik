@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS public.expenses (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE public.expenses
+  ADD COLUMN IF NOT EXISTS bucket text NOT NULL DEFAULT 'home';
+
 CREATE TABLE IF NOT EXISTS public.lessons (
   id text PRIMARY KEY,
   user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -118,6 +121,31 @@ BEGIN
     EXECUTE format('CREATE POLICY "own rows delete" ON public.%I FOR DELETE USING (auth.uid() = user_id)', t);
   END LOOP;
 END $$;
+
+-- ---------- ПОДПИСКИ НА ПУШИ ----------
+
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+  endpoint text NOT NULL UNIQUE,
+  p256dh text NOT NULL,
+  auth text NOT NULL,
+  user_agent text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  last_used_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "own subs select" ON public.push_subscriptions;
+DROP POLICY IF EXISTS "own subs insert" ON public.push_subscriptions;
+DROP POLICY IF EXISTS "own subs update" ON public.push_subscriptions;
+DROP POLICY IF EXISTS "own subs delete" ON public.push_subscriptions;
+
+CREATE POLICY "own subs select" ON public.push_subscriptions FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "own subs insert" ON public.push_subscriptions FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "own subs update" ON public.push_subscriptions FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "own subs delete" ON public.push_subscriptions FOR DELETE USING (auth.uid() = user_id);
 
 -- ---------- ХРАНИЛИЩЕ ФАЙЛОВ ИДЕЙ ----------
 

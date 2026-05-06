@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { sendTelegramMessage } from "@/lib/telegram";
+import { sendPush, type PushSubscriptionRow } from "@/lib/push-server";
 import { nextOccurrence } from "@/lib/anniversaries";
 import type { Anniversary, AnniversaryNotify, Recurrence } from "@/types/anniversary";
 
@@ -162,7 +163,33 @@ export async function GET(req: Request) {
     for (const t of tomorrowTasks) lines.push(taskLine(t));
   }
 
-  await sendTelegramMessage(ownerChatId, lines.join("\n"));
+  const message = lines.join("\n");
+  await sendTelegramMessage(ownerChatId, message);
+
+  // Also send PWA pushes to all subscribed devices for this user.
+  let pushSent = 0;
+  let pushDropped = 0;
+  const { data: subData } = await supabase
+    .from("push_subscriptions")
+    .select("id, endpoint, p256dh, auth")
+    .eq("user_id", ownerUserId);
+  if (subData && subData.length > 0) {
+    const payload = {
+      title: "🔔 Сводка на день",
+      body: message,
+      tag: `digest-${todayIso}`,
+      url: "/",
+    };
+    for (const row of subData as PushSubscriptionRow[]) {
+      const res = await sendPush(row, payload);
+      if (res.ok) {
+        pushSent += 1;
+      } else if (res.gone) {
+        pushDropped += 1;
+        await supabase.from("push_subscriptions").delete().eq("id", row.id);
+      }
+    }
+  }
 
   return NextResponse.json({
     ok: true,
@@ -171,5 +198,7 @@ export async function GET(req: Request) {
     todayTasks: todayTasks.length,
     tomorrowTasks: tomorrowTasks.length,
     sent: 1,
+    pushSent,
+    pushDropped,
   });
 }

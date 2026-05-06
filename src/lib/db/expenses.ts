@@ -1,12 +1,13 @@
 "use client";
 
-import type { Expense } from "@/types/expense";
+import type { Expense, ExpenseBucket } from "@/types/expense";
 import { getSupabase } from "@/lib/supabase";
 
 type DbExpense = {
   id: string;
   user_id: string;
   date: string;
+  bucket: string | null;
   category: string;
   subcategory: string | null;
   description: string | null;
@@ -14,10 +15,15 @@ type DbExpense = {
   created_at: string;
 };
 
+function normalizeBucket(raw: string | null | undefined): ExpenseBucket {
+  return raw === "other" ? "other" : "home";
+}
+
 function fromDb(row: DbExpense): Expense {
   return {
     id: row.id,
     date: row.date,
+    bucket: normalizeBucket(row.bucket),
     category: row.category,
     subcategory: row.subcategory ?? undefined,
     description: row.description ?? undefined,
@@ -30,6 +36,7 @@ function toDbInsert(e: Expense): Omit<DbExpense, "user_id"> {
   return {
     id: e.id,
     date: e.date,
+    bucket: e.bucket,
     category: e.category,
     subcategory: e.subcategory ?? null,
     description: e.description ?? null,
@@ -66,6 +73,7 @@ export async function updateExpense(
 ): Promise<void> {
   const dbPatch: Record<string, unknown> = {};
   if (patch.date !== undefined) dbPatch.date = patch.date;
+  if (patch.bucket !== undefined) dbPatch.bucket = patch.bucket;
   if (patch.category !== undefined) dbPatch.category = patch.category;
   if (patch.subcategory !== undefined) dbPatch.subcategory = patch.subcategory ?? null;
   if (patch.description !== undefined) dbPatch.description = patch.description ?? null;

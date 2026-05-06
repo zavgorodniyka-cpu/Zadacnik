@@ -74,6 +74,7 @@ import EnglishView from "./EnglishView";
 import ExpensesView from "./ExpensesView";
 import IdeasView from "./IdeasView";
 import NotificationsButton from "./NotificationsButton";
+import PushButton from "./PushButton";
 import QuickAdd from "./QuickAdd";
 import TagFilterBar from "./TagFilterBar";
 import TaskForm from "./TaskForm";
@@ -809,6 +810,7 @@ export default function Planner({ session }: Props) {
             </button>
           )}
           <div className="flex items-center gap-1.5 sm:hidden">
+            <PushButton />
             <NotificationsButton
               settings={notifySettings}
               onChange={setNotifySettings}
@@ -836,6 +838,7 @@ export default function Planner({ session }: Props) {
         <div className="flex flex-1 items-center gap-2 sm:justify-end">
           <QuickAdd inputRef={quickAddRef} onCreate={handleSmartCreate} />
           <div className="hidden sm:flex sm:items-center sm:gap-2">
+            <PushButton />
             <NotificationsButton
               settings={notifySettings}
               onChange={setNotifySettings}
