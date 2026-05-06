@@ -9,7 +9,7 @@
 //
 // Bumping CACHE_NAME invalidates older caches automatically on activate.
 
-const CACHE_NAME = "planner-cache-v6";
+const CACHE_NAME = "planner-cache-v7";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -80,6 +80,9 @@ self.addEventListener("push", (event) => {
       icon: "/icon-192.png",
       badge: "/icon-192.png",
       tag: payload.tag,
+      // Stay on screen until the user dismisses it (desktop Chrome/Edge,
+      // some Android builds). iOS Safari ignores this flag.
+      requireInteraction: true,
       data: { url: payload.url || "/" },
     }),
   );

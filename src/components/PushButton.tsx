@@ -157,7 +157,7 @@ export default function PushButton() {
         className={[
           "rounded-lg border p-2 transition",
           subscribed
-            ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-300"
+            ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300"
             : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900",
         ].join(" ")}
       >
@@ -182,7 +182,7 @@ export default function PushButton() {
               className={[
                 "relative inline-flex h-5 w-9 flex-none items-center rounded-full transition disabled:opacity-50",
                 subscribed
-                  ? "bg-blue-500"
+                  ? "bg-emerald-500"
                   : "bg-zinc-300 dark:bg-zinc-700",
               ].join(" ")}
             >
