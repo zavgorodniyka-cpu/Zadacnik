@@ -818,8 +818,17 @@ export default function Planner({ session }: Props) {
       "flex-shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition sm:px-5",
       active
         ? "bg-blue-500 text-white shadow-sm"
-        : "text-zinc-600 hover:bg-orange-100 hover:text-orange-700 dark:text-zinc-400 dark:hover:bg-orange-950/40 dark:hover:text-orange-300",
+        // На мобиле инактив-кнопки получают свой фон + рамку, чтобы было
+        // понятно куда тапать. На десктопе (sm+) убираем — там пилл-стиль.
+        : "border border-zinc-200 bg-white text-zinc-700 hover:bg-orange-100 hover:text-orange-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-orange-950/40 dark:hover:text-orange-300 sm:border-0 sm:bg-transparent sm:text-zinc-600 sm:dark:bg-transparent sm:dark:text-zinc-400",
     ].join(" ");
+
+  // На мобилке держим в шапке только основные вкладки, остальное прячем
+  // в выпадающее «Ещё» — чтобы не перегружать экран по мере роста табов.
+  const MAIN_TAB_IDS: View[] = ["calendar", "finance", "reminders", "ideas"];
+  const mainTabs = tabs.filter((t) => MAIN_TAB_IDS.includes(t.id));
+  const overflowTabs = tabs.filter((t) => !MAIN_TAB_IDS.includes(t.id));
+  const overflowActive = overflowTabs.some((t) => t.id === view);
 
   const exportBtn = (
     <button
@@ -901,8 +910,9 @@ export default function Planner({ session }: Props) {
           </div>
         </div>
 
-        <nav className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:overflow-visible sm:px-0">
-          <div className="inline-flex items-center gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-900">
+        <nav>
+          {/* Десктоп: одна строка со всеми вкладками */}
+          <div className="hidden sm:inline-flex sm:items-center sm:gap-1 sm:rounded-xl sm:bg-zinc-100 sm:p-1 sm:dark:bg-zinc-900">
             {tabs.map((t) => (
               <button
                 key={t.id}
@@ -913,6 +923,30 @@ export default function Planner({ session }: Props) {
                 {t.label}
               </button>
             ))}
+          </div>
+          {/* Мобила: 2×2 основные + «Ещё ▾» */}
+          <div className="sm:hidden">
+            <div className="grid grid-cols-2 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-900">
+              {mainTabs.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setView(t.id)}
+                  className={tabClass(view === t.id)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {overflowTabs.length > 0 && (
+              <MoreMenu
+                tabs={overflowTabs}
+                activeId={view}
+                active={overflowActive}
+                onSelect={(id) => setView(id)}
+                tabClass={tabClass(overflowActive)}
+              />
+            )}
           </div>
         </nav>
 
@@ -1090,3 +1124,79 @@ export default function Planner({ session }: Props) {
     </div>
   );
 }
+
+function MoreMenu({
+  tabs,
+  activeId,
+  active,
+  onSelect,
+  tabClass,
+}: {
+  tabs: Array<{ id: View; label: string }>;
+  activeId: View;
+  active: boolean;
+  onSelect: (id: View) => void;
+  tabClass: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  const activeOverflow = tabs.find((t) => t.id === activeId);
+  const label = activeOverflow ? activeOverflow.label : "Ещё";
+
+  return (
+    <div ref={ref} className="relative mt-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={[tabClass, "w-full justify-center inline-flex items-center gap-1"].join(" ")}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        {label}
+        <svg viewBox="0 0 16 16" className={["h-3.5 w-3.5 transition", open ? "rotate-180" : ""].join(" ")} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 6l4 4 4-4" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute left-0 right-0 z-20 mt-1 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-800 dark:bg-zinc-900"
+        >
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onSelect(t.id);
+                setOpen(false);
+              }}
+              className={[
+                "block w-full px-4 py-2.5 text-left text-sm transition",
+                activeId === t.id
+                  ? "bg-blue-500 text-white"
+                  : "text-zinc-700 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-800",
+              ].join(" ")}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
