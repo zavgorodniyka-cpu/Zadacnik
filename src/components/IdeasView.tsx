@@ -42,18 +42,17 @@ export default function IdeasView({
   onDeleteItem,
   generateId,
 }: Props) {
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(
-    folders[0]?.id ?? null,
-  );
+  // Не выбираем папку автоматически — пользователь сам выбирает что открыть.
+  // Это предотвращает лишнюю загрузку файлов первой папки при заходе во вкладку.
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (folders.length === 0) {
-      setSelectedFolderId(null);
-    } else if (
-      !selectedFolderId ||
+    // Если выбранная папка пропала (удалили) — сбрасываем выбор.
+    if (
+      selectedFolderId &&
       !folders.find((f) => f.id === selectedFolderId)
     ) {
-      setSelectedFolderId(folders[0].id);
+      setSelectedFolderId(null);
     }
   }, [folders, selectedFolderId]);
 
@@ -72,31 +71,39 @@ export default function IdeasView({
     [items, selectedFolderId],
   );
 
+  // На мобилке drill-in: видно либо список папок, либо содержимое одной папки.
+  // На десктопе (lg+) две колонки видны всегда.
   return (
     <div className="grid gap-4 lg:grid-cols-[260px_1fr] lg:items-start">
-      <FolderSidebar
-        folders={folders}
-        counts={counts}
-        selectedFolderId={selectedFolderId}
-        onSelect={setSelectedFolderId}
-        onAdd={(f) => {
-          onAddFolder(f);
-          setSelectedFolderId(f.id);
-        }}
-        onUpdate={onUpdateFolder}
-        onDelete={onDeleteFolder}
-        generateId={generateId}
-      />
+      <div className={selectedFolderId ? "hidden lg:block" : "block"}>
+        <FolderSidebar
+          folders={folders}
+          counts={counts}
+          selectedFolderId={selectedFolderId}
+          onSelect={setSelectedFolderId}
+          onAdd={(f) => {
+            onAddFolder(f);
+            setSelectedFolderId(f.id);
+          }}
+          onUpdate={onUpdateFolder}
+          onDelete={onDeleteFolder}
+          generateId={generateId}
+        />
+      </div>
 
-      <ItemsPanel
-        folder={selectedFolder}
-        items={folderItems}
-        userId={userId}
-        onAdd={onAddItem}
-        onUpdate={onUpdateItem}
-        onDelete={onDeleteItem}
-        generateId={generateId}
-      />
+      <div className={selectedFolderId ? "block" : "hidden lg:block"}>
+        <ItemsPanel
+          folder={selectedFolder}
+          items={folderItems}
+          userId={userId}
+          hasFolders={folders.length > 0}
+          onBack={() => setSelectedFolderId(null)}
+          onAdd={onAddItem}
+          onUpdate={onUpdateItem}
+          onDelete={onDeleteItem}
+          generateId={generateId}
+        />
+      </div>
     </div>
   );
 }
@@ -346,6 +353,8 @@ function ItemsPanel({
   folder,
   items,
   userId,
+  hasFolders,
+  onBack,
   onAdd,
   onUpdate,
   onDelete,
@@ -354,6 +363,8 @@ function ItemsPanel({
   folder: Folder | null;
   items: IdeaItem[];
   userId: string;
+  hasFolders: boolean;
+  onBack: () => void;
   onAdd: (item: IdeaItem) => Promise<SaveResult>;
   onUpdate: (id: string, patch: Partial<IdeaItem>) => Promise<SaveResult>;
   onDelete: (id: string) => void;
@@ -364,14 +375,26 @@ function ItemsPanel({
 
   if (!folder) {
     return (
-      <div className="flex min-h-[20rem] items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white p-8 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
-        Создай папку слева, чтобы начать собирать идеи.
+      <div className="flex min-h-[20rem] items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+        {hasFolders
+          ? "Выбери папку слева, чтобы посмотреть идеи."
+          : "Создай папку слева, чтобы начать собирать идеи."}
       </div>
     );
   }
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <button
+        type="button"
+        onClick={onBack}
+        className="mb-2 inline-flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 lg:hidden"
+      >
+        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 3l-5 5 5 5" />
+        </svg>
+        Папки
+      </button>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
           <span className="text-xl">{folder.emoji ?? "📁"}</span>

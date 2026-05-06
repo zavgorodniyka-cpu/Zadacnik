@@ -45,12 +45,11 @@ export default function TaskList({
         .filter((t) => t.dueDate === selectedDate)
         .sort((a, b) => {
           if (a.status !== b.status) return a.status === "done" ? 1 : -1;
-          const ap = a.priority === "high" ? 0 : 1;
-          const bp = b.priority === "high" ? 0 : 1;
-          if (ap !== bp) return ap - bp;
+          // По времени: задачи без времени уходят в конец дня.
           const at = a.dueTime ?? "99:99";
           const bt = b.dueTime ?? "99:99";
-          return at.localeCompare(bt);
+          if (at !== bt) return at.localeCompare(bt);
+          return a.createdAt.localeCompare(b.createdAt);
         }),
     [tasks, selectedDate],
   );
