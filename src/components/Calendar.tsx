@@ -175,15 +175,12 @@ export default function Calendar({ tasks, anniversaries, selectedDate, onSelectD
           } else if (isNonWorking) {
             stateClass =
               "border-emerald-200/70 bg-emerald-100/60 hover:bg-emerald-100 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:hover:bg-emerald-950/60";
-          } else if (hasTasks) {
-            stateClass =
-              "border-red-200/70 bg-red-100/60 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-950/40 dark:hover:bg-red-950/60";
           } else if (isToday) {
             stateClass =
               "border-zinc-900 bg-transparent dark:border-zinc-50";
           } else {
             stateClass =
-              "border-transparent hover:border-zinc-200 hover:bg-zinc-50 dark:hover:border-zinc-700 dark:hover:bg-zinc-900";
+              "border-zinc-300 hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-900";
           }
 
           return (
@@ -195,8 +192,8 @@ export default function Calendar({ tasks, anniversaries, selectedDate, onSelectD
               className={[
                 "relative flex h-12 flex-col items-center justify-center rounded-lg border text-sm transition sm:h-20 sm:text-base",
                 inMonth
-                  ? "text-zinc-900 dark:text-zinc-100"
-                  : "text-zinc-400 dark:text-zinc-600",
+                  ? "text-orange-600 dark:text-orange-400"
+                  : "text-orange-300/70 dark:text-orange-900/70",
                 stateClass,
                 isToday && !isSelected ? "ring-1 ring-zinc-900 dark:ring-zinc-50" : "",
               ].join(" ")}
@@ -222,8 +219,8 @@ export default function Calendar({ tasks, anniversaries, selectedDate, onSelectD
                   {holiday}
                 </span>
               )}
-              {hasTasks && isNonWorking && !isSelected && !holiday && (
-                <span className="absolute bottom-1.5 h-1.5 w-1.5 rounded-full bg-red-500" />
+              {hasTasks && !isSelected && !holiday && (
+                <span className="absolute bottom-1.5 h-1.5 w-1.5 rounded-full bg-orange-500" />
               )}
             </button>
           );
@@ -311,7 +308,7 @@ function MiniMonth({
             >
               {d.getDate()}
               {(hasTasks || hasAnniversary) && inMonth && !isSelected && (
-                <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-0.5 -translate-x-1/2 rounded-full bg-red-500" />
+                <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-0.5 -translate-x-1/2 rounded-full bg-orange-500" />
               )}
             </button>
           );

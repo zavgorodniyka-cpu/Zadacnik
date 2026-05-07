@@ -35,7 +35,7 @@ export default function UpcomingList({ tasks, onSelectDate, onEdit }: Props) {
                   {formatHumanDate(t.dueDate)}
                 </span>
                 {t.dueTime && (
-                  <span className="font-mono text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
+                  <span className="font-mono text-xs tabular-nums text-orange-600 dark:text-orange-400">
                     {t.dueTime}
                   </span>
                 )}
