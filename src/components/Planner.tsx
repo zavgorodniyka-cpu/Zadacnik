@@ -75,6 +75,7 @@ import ExpensesView from "./ExpensesView";
 import IdeasView from "./IdeasView";
 import NotificationsButton from "./NotificationsButton";
 import PushButton from "./PushButton";
+import ThemeButton from "./ThemeButton";
 import QuickAdd from "./QuickAdd";
 import TagFilterBar from "./TagFilterBar";
 import TaskForm from "./TaskForm";
@@ -904,6 +905,7 @@ export default function Planner({ session }: Props) {
               settings={notifySettings}
               onChange={setNotifySettings}
             />
+            <ThemeButton />
             {exportBtn}
             {signOutBtn}
             {addBtn(true)}
@@ -958,6 +960,7 @@ export default function Planner({ session }: Props) {
               settings={notifySettings}
               onChange={setNotifySettings}
             />
+            <ThemeButton />
             {exportBtn}
             {signOutBtn}
             {addBtn(false)}
