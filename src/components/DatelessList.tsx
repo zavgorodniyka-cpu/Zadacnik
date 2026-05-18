@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Reminder, ReminderMode, Task } from "@/types/task";
 import { formatHumanDate } from "@/lib/dates";
 import PriorityFlag from "./PriorityFlag";
@@ -39,9 +39,17 @@ export default function DatelessList({
 }: Props) {
   const [draft, setDraft] = useState("");
   const [showDone, setShowDone] = useState(false);
+  const [justAdded, setJustAdded] = useState<string | null>(null);
+  const addedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pending = tasks.filter((t) => t.status !== "done");
   const done = tasks.filter((t) => t.status === "done");
+
+  useEffect(() => {
+    return () => {
+      if (addedTimeoutRef.current) clearTimeout(addedTimeoutRef.current);
+    };
+  }, []);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,6 +57,9 @@ export default function DatelessList({
     if (!trimmed) return;
     onAdd(trimmed);
     setDraft("");
+    setJustAdded(trimmed);
+    if (addedTimeoutRef.current) clearTimeout(addedTimeoutRef.current);
+    addedTimeoutRef.current = setTimeout(() => setJustAdded(null), 1800);
   }
 
   return (
@@ -57,15 +68,23 @@ export default function DatelessList({
         Список дел
       </h2>
 
-      <div className="mb-3 grid grid-cols-2 gap-2">
-        <form onSubmit={submit}>
+      <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <form onSubmit={submit} className="flex items-stretch gap-2">
           <input
             type="text"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Что сделать?"
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
+            enterKeyHint="done"
+            className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
           />
+          <button
+            type="submit"
+            disabled={!draft.trim()}
+            className="flex-none rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-orange-500 dark:hover:bg-orange-400"
+          >
+            Добавить
+          </button>
         </form>
         <div className="relative">
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400">
@@ -96,6 +115,19 @@ export default function DatelessList({
           )}
         </div>
       </div>
+
+      {justAdded && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-3 flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200"
+        >
+          <svg viewBox="0 0 16 16" className="h-4 w-4 flex-none" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 8l3.5 3.5L13 5" />
+          </svg>
+          <span className="truncate">Добавлено: «{justAdded}»</span>
+        </div>
+      )}
 
       {pending.length === 0 && done.length === 0 ? (
         <p className="py-3 text-sm text-zinc-400 dark:text-zinc-600">
