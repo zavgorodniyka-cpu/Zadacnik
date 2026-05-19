@@ -6,6 +6,7 @@ import type { Reminder, Subtask, Task } from "@/types/task";
 import type { Anniversary } from "@/types/anniversary";
 import type { Folder, IdeaItem } from "@/types/folder";
 import type { Expense } from "@/types/expense";
+import type { Habit, HabitCheckin } from "@/types/habit";
 import { generateId } from "@/lib/storage";
 import { todayISO } from "@/lib/dates";
 import { generateRecurringTasks, generateRecurrenceInstances, type Recurrence } from "@/lib/recurring";
@@ -52,6 +53,15 @@ import {
   updateIdea as dbUpdateIdea,
 } from "@/lib/db/folders";
 import {
+  deleteCheckin as dbDeleteCheckin,
+  deleteHabit as dbDeleteHabit,
+  fetchHabitCheckins,
+  fetchHabits,
+  insertCheckin as dbInsertCheckin,
+  insertHabit as dbInsertHabit,
+  updateHabit as dbUpdateHabit,
+} from "@/lib/db/habits";
+import {
   loadSettings,
   REMINDER_DEFAULTS,
   saveSettings,
@@ -72,6 +82,7 @@ import DatelessList from "./DatelessList";
 import DayTimeline from "./DayTimeline";
 import EnglishView from "./EnglishView";
 import ExpensesView from "./ExpensesView";
+import HabitsView from "./HabitsView";
 import IdeasView from "./IdeasView";
 import NotificationsButton from "./NotificationsButton";
 import PushButton from "./PushButton";
@@ -82,7 +93,7 @@ import TaskForm from "./TaskForm";
 import TaskList from "./TaskList";
 import UpcomingList from "./UpcomingList";
 
-type View = "calendar" | "finance" | "reminders" | "ideas" | "english";
+type View = "calendar" | "finance" | "reminders" | "ideas" | "habits" | "english";
 
 type Props = {
   session: Session;
@@ -101,6 +112,8 @@ export default function Planner({ session }: Props) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [ideas, setIdeas] = useState<IdeaItem[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [habitCheckins, setHabitCheckins] = useState<HabitCheckin[]>([]);
   const [view, setView] = useState<View>("calendar");
   const [hydrated, setHydrated] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(() => todayISO());
@@ -166,6 +179,8 @@ export default function Planner({ session }: Props) {
       setFolders(cached.folders ?? []);
       setIdeas(cached.ideas ?? []);
       setExpenses(cached.expenses ?? []);
+      setHabits(cached.habits ?? []);
+      setHabitCheckins(cached.habitCheckins ?? []);
       setHydrated(true);
     }
     setQueueLen(getQueueLength());
@@ -173,12 +188,14 @@ export default function Planner({ session }: Props) {
     (async () => {
       try {
         // Step 2 — fetch fresh data from Supabase.
-        const [tR, aR, fR, iR, exR] = await Promise.allSettled([
+        const [tR, aR, fR, iR, exR, hR, hcR] = await Promise.allSettled([
           fetchTasks(),
           fetchAnniversaries(),
           fetchFolders(),
           fetchIdeas(),
           fetchExpenses(),
+          fetchHabits(),
+          fetchHabitCheckins(),
         ]);
         if (cancelled) return;
 
@@ -187,6 +204,8 @@ export default function Planner({ session }: Props) {
         if (fR.status === "rejected") logErr(fR.reason);
         if (iR.status === "rejected") logErr(iR.reason);
         if (exR.status === "rejected") logErr(exR.reason);
+        if (hR.status === "rejected") logErr(hR.reason);
+        if (hcR.status === "rejected") logErr(hcR.reason);
 
         const t = tR.status === "fulfilled" ? tR.value : [];
         const a = aR.status === "fulfilled" ? aR.value : [];
@@ -195,6 +214,8 @@ export default function Planner({ session }: Props) {
         const ex = exR.status === "fulfilled" ? exR.value : [];
 
         setExpenses(ex);
+        if (hR.status === "fulfilled") setHabits(hR.value);
+        if (hcR.status === "fulfilled") setHabitCheckins(hcR.value);
 
         // Seed user's house expenses on first finance load (one-time per user).
         if (ex.length === 0 && exR.status === "fulfilled") {
@@ -272,8 +293,8 @@ export default function Planner({ session }: Props) {
   // Persist a snapshot of the current data to the offline cache after every change.
   useEffect(() => {
     if (!hydrated) return;
-    saveOfflineCache({ tasks, anniversaries, folders, ideas, expenses });
-  }, [tasks, anniversaries, folders, ideas, expenses, hydrated]);
+    saveOfflineCache({ tasks, anniversaries, folders, ideas, expenses, habits, habitCheckins });
+  }, [tasks, anniversaries, folders, ideas, expenses, habits, habitCheckins, hydrated]);
 
   // Запускает попытку синхронизации очереди и отмечает «сбой», если что-то
   // дропнулось после трёх попыток. На успех — сбрасывает флаг ошибки.
@@ -337,12 +358,14 @@ export default function Planner({ session }: Props) {
       if (getQueueLength() > 0) return;
       setRefetching(true);
       try {
-        const [tR, aR, fR, iR, exR] = await Promise.allSettled([
+        const [tR, aR, fR, iR, exR, hR, hcR] = await Promise.allSettled([
           fetchTasks(),
           fetchAnniversaries(),
           fetchFolders(),
           fetchIdeas(),
           fetchExpenses(),
+          fetchHabits(),
+          fetchHabitCheckins(),
         ]);
         if (cancelled) return;
         const allOk =
@@ -350,12 +373,16 @@ export default function Planner({ session }: Props) {
           aR.status === "fulfilled" &&
           fR.status === "fulfilled" &&
           iR.status === "fulfilled" &&
-          exR.status === "fulfilled";
+          exR.status === "fulfilled" &&
+          hR.status === "fulfilled" &&
+          hcR.status === "fulfilled";
         if (tR.status === "fulfilled") setTasks(tR.value);
         if (aR.status === "fulfilled") setAnniversaries(aR.value);
         if (fR.status === "fulfilled") setFolders(fR.value);
         if (iR.status === "fulfilled") setIdeas(iR.value);
         if (exR.status === "fulfilled") setExpenses(exR.value);
+        if (hR.status === "fulfilled") setHabits(hR.value);
+        if (hcR.status === "fulfilled") setHabitCheckins(hcR.value);
         if (allOk) {
           setLastRefetchAt(Date.now());
           setHasSyncError(false);
@@ -733,6 +760,47 @@ export default function Planner({ session }: Props) {
     syncOrQueue(() => dbDeleteAnniversary(id), { kind: "anniversary.delete", id });
   }
 
+  function handleAddHabit(habit: Habit) {
+    setHabits((prev) => [...prev, habit]);
+    syncOrQueue(() => dbInsertHabit(habit), { kind: "habit.insert", habit });
+  }
+
+  function handleUpdateHabit(id: string, patch: Partial<Habit>) {
+    setHabits((prev) => prev.map((h) => (h.id === id ? { ...h, ...patch } : h)));
+    syncOrQueue(() => dbUpdateHabit(id, patch), { kind: "habit.update", id, patch });
+  }
+
+  function handleDeleteHabit(id: string) {
+    setHabits((prev) => prev.filter((h) => h.id !== id));
+    setHabitCheckins((prev) => prev.filter((c) => c.habitId !== id));
+    syncOrQueue(() => dbDeleteHabit(id), { kind: "habit.delete", id });
+  }
+
+  function handleToggleCheckin(habitId: string, iso: string) {
+    const existing = habitCheckins.find(
+      (c) => c.habitId === habitId && c.date === iso,
+    );
+    if (existing) {
+      setHabitCheckins((prev) => prev.filter((c) => c !== existing));
+      syncOrQueue(
+        () => dbDeleteCheckin(habitId, iso),
+        { kind: "checkin.delete", habitId, date: iso },
+      );
+    } else {
+      const checkin: HabitCheckin = {
+        id: generateId(),
+        habitId,
+        date: iso,
+        createdAt: new Date().toISOString(),
+      };
+      setHabitCheckins((prev) => [...prev, checkin]);
+      syncOrQueue(
+        () => dbInsertCheckin(checkin),
+        { kind: "checkin.insert", checkin },
+      );
+    }
+  }
+
   function handleAddFolder(folder: Folder) {
     setFolders((prev) => [...prev, folder]);
     syncOrQueue(() => dbInsertFolder(folder), { kind: "folder.insert", folder });
@@ -867,6 +935,7 @@ export default function Planner({ session }: Props) {
     { id: "finance", label: "Финансы" },
     { id: "reminders", label: "Напоминания" },
     { id: "ideas", label: "Идеи" },
+    { id: "habits", label: "Привычки" },
     { id: "english", label: "Английский" },
   ];
 
@@ -1073,6 +1142,16 @@ export default function Planner({ session }: Props) {
           onAddItem={handleAddIdea}
           onUpdateItem={handleUpdateIdea}
           onDeleteItem={handleDeleteIdea}
+          generateId={generateId}
+        />
+      ) : view === "habits" ? (
+        <HabitsView
+          habits={habits}
+          checkins={habitCheckins}
+          onAdd={handleAddHabit}
+          onUpdate={handleUpdateHabit}
+          onDelete={handleDeleteHabit}
+          onToggleCheckin={handleToggleCheckin}
           generateId={generateId}
         />
       ) : view === "english" ? (

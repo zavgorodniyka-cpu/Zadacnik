@@ -9,7 +9,7 @@
 //
 // Bumping CACHE_NAME invalidates older caches automatically on activate.
 
-const CACHE_NAME = "planner-cache-v8";
+const CACHE_NAME = "planner-cache-v9";
 
 self.addEventListener("install", () => {
   self.skipWaiting();

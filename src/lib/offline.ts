@@ -4,6 +4,7 @@ import type { Task } from "@/types/task";
 import type { Anniversary } from "@/types/anniversary";
 import type { Folder, IdeaItem } from "@/types/folder";
 import type { Expense } from "@/types/expense";
+import type { Habit, HabitCheckin } from "@/types/habit";
 import {
   bulkInsertTasks,
   deleteTask as dbDeleteTask,
@@ -32,6 +33,13 @@ import {
   insertExpense as dbInsertExpense,
   updateExpense as dbUpdateExpense,
 } from "@/lib/db/expenses";
+import {
+  deleteCheckin as dbDeleteCheckin,
+  deleteHabit as dbDeleteHabit,
+  insertCheckin as dbInsertCheckin,
+  insertHabit as dbInsertHabit,
+  updateHabit as dbUpdateHabit,
+} from "@/lib/db/habits";
 
 const CACHE_KEY = "planner.offline-cache.v1";
 const QUEUE_KEY = "planner.sync-queue.v1";
@@ -42,6 +50,8 @@ export type OfflineCache = {
   folders: Folder[];
   ideas: IdeaItem[];
   expenses: Expense[];
+  habits: Habit[];
+  habitCheckins: HabitCheckin[];
   savedAt: string;
 };
 
@@ -91,7 +101,12 @@ export type QueueEntry =
   | { kind: "expense.insert"; expense: Expense }
   | { kind: "expense.bulk-insert"; expenses: Expense[] }
   | { kind: "expense.update"; id: string; patch: Partial<Expense> }
-  | { kind: "expense.delete"; id: string };
+  | { kind: "expense.delete"; id: string }
+  | { kind: "habit.insert"; habit: Habit }
+  | { kind: "habit.update"; id: string; patch: Partial<Habit> }
+  | { kind: "habit.delete"; id: string }
+  | { kind: "checkin.insert"; checkin: HabitCheckin }
+  | { kind: "checkin.delete"; habitId: string; date: string };
 
 type StoredEntry = QueueEntry & { _attempts?: number };
 
@@ -170,6 +185,16 @@ async function applyEntry(entry: QueueEntry): Promise<void> {
       return dbUpdateExpense(entry.id, entry.patch);
     case "expense.delete":
       return dbDeleteExpense(entry.id);
+    case "habit.insert":
+      return dbInsertHabit(entry.habit);
+    case "habit.update":
+      return dbUpdateHabit(entry.id, entry.patch);
+    case "habit.delete":
+      return dbDeleteHabit(entry.id);
+    case "checkin.insert":
+      return dbInsertCheckin(entry.checkin);
+    case "checkin.delete":
+      return dbDeleteCheckin(entry.habitId, entry.date);
   }
 }
 

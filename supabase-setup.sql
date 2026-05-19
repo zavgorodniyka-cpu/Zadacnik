@@ -101,15 +101,38 @@ CREATE TABLE IF NOT EXISTS public.words (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS public.habits (
+  id text PRIMARY KEY,
+  user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  emoji text,
+  schedule jsonb NOT NULL DEFAULT '{"kind":"daily"}',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.habit_checkins (
+  id text PRIMARY KEY,
+  user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+  habit_id text NOT NULL REFERENCES public.habits(id) ON DELETE CASCADE,
+  date text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (habit_id, date)
+);
+
+CREATE INDEX IF NOT EXISTS habit_checkins_habit_date_idx
+  ON public.habit_checkins (habit_id, date);
+
 -- ---------- ВКЛЮЧАЕМ RLS ----------
 
-ALTER TABLE public.tasks         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.anniversaries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.folders       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ideas         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.expenses      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.lessons       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.words         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tasks          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.anniversaries  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.folders        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ideas          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.expenses       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.lessons        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.words          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.habits         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.habit_checkins ENABLE ROW LEVEL SECURITY;
 
 -- ---------- ПОЛИТИКИ (удаляем старые, ставим новые) ----------
 
@@ -117,7 +140,7 @@ DO $$
 DECLARE
   t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['tasks','anniversaries','folders','ideas','expenses','lessons','words'] LOOP
+  FOREACH t IN ARRAY ARRAY['tasks','anniversaries','folders','ideas','expenses','lessons','words','habits','habit_checkins'] LOOP
     EXECUTE format('DROP POLICY IF EXISTS "own rows select" ON public.%I', t);
     EXECUTE format('DROP POLICY IF EXISTS "own rows insert" ON public.%I', t);
     EXECUTE format('DROP POLICY IF EXISTS "own rows update" ON public.%I', t);
