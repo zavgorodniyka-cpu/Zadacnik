@@ -74,11 +74,15 @@ export default function ExpensesView({
 }: Props) {
   const [bucket, setBucket] = useState<ExpenseBucket>("home");
   const [filterCategory, setFilterCategory] = useState<string>("");
-  const [filterSubcategory, setFilterSubcategory] = useState<string>("");
   const [filterMonth, setFilterMonth] = useState<string>(""); // "" = все месяцы, иначе "YYYY-MM"
   const [editingId, setEditingId] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // В «Дом» используется иерархия категория → подкатегория (стройка большая,
+  // нужна детализация). В «Другое» подкатегория не нужна — просто плоский
+  // список категорий типа «А», «Т» и т.п.
+  const showSubcategory = bucket === "home";
 
   const bucketExpenses = useMemo(
     () => expenses.filter((e) => e.bucket === bucket),
@@ -129,31 +133,14 @@ export default function ExpensesView({
   // Reset filters when switching sub-tab — categories/months differ between buckets.
   useEffect(() => {
     setFilterCategory("");
-    setFilterSubcategory("");
     setFilterMonth("");
     setEditingId(null);
   }, [bucket]);
-
-  // When category changes, current subcategory may not exist within it — drop it.
-  useEffect(() => {
-    setFilterSubcategory("");
-  }, [filterCategory]);
-
-  // Subcategories — все подкатегории в bucket'е, опционально сужаются до выбранной категории.
-  const subcategoryOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of bucketExpenses) {
-      if (filterCategory && e.category !== filterCategory) continue;
-      if (e.subcategory && e.subcategory.trim()) set.add(e.subcategory);
-    }
-    return [...set].sort((a, b) => a.localeCompare(b, "ru"));
-  }, [bucketExpenses, filterCategory]);
 
   const filtered = useMemo(() => {
     return bucketExpenses
       .filter((e) => {
         if (filterCategory && e.category !== filterCategory) return false;
-        if (filterSubcategory && (e.subcategory ?? "") !== filterSubcategory) return false;
         if (filterMonth && !e.date.startsWith(filterMonth)) return false;
         return true;
       })
@@ -161,25 +148,26 @@ export default function ExpensesView({
         if (a.date !== b.date) return a.date.localeCompare(b.date);
         return a.createdAt.localeCompare(b.createdAt);
       });
-  }, [bucketExpenses, filterCategory, filterSubcategory, filterMonth]);
+  }, [bucketExpenses, filterCategory, filterMonth]);
 
   const total = useMemo(
     () => filtered.reduce((s, e) => s + e.amount, 0),
     [filtered],
   );
 
-  // В «Другое» диаграмма всегда по подкатегориям (категория там одна-две, разбивка
-  // по ним мало что даёт). В «Дом» — категории с детализацией по клику.
+  // В «Другое» диаграмма по категориям без вложенной детализации
+  // (подкатегория там не используется). В «Дом» — категории с детализацией
+  // подкатегорий по клику на сегмент.
   const chartGroups = useMemo(() => {
     if (bucket === "other") {
-      const subs = new Map<string, number>();
+      const cats = new Map<string, number>();
       for (const e of filtered) {
-        const subKey = e.subcategory && e.subcategory.trim() ? e.subcategory : "—";
-        subs.set(subKey, (subs.get(subKey) ?? 0) + e.amount);
+        const key = e.category && e.category.trim() ? e.category : "—";
+        cats.set(key, (cats.get(key) ?? 0) + e.amount);
       }
-      return [...subs.entries()]
+      return [...cats.entries()]
         .sort((a, b) => b[1] - a[1])
-        .map(([sk, sv]) => ({ key: sk, label: sk, value: sv, children: undefined }));
+        .map(([k, v]) => ({ key: k, label: k, value: v, children: undefined }));
     }
 
     const map = new Map<
@@ -208,7 +196,7 @@ export default function ExpensesView({
       }));
   }, [filtered, bucket]);
 
-  const chartTitle = bucket === "other" ? "По подкатегориям" : "По категориям";
+  const chartTitle = "По категориям";
 
   function handleImportClick() {
     fileRef.current?.click();
@@ -243,7 +231,6 @@ export default function ExpensesView({
 
   function clearFilters() {
     setFilterCategory("");
-    setFilterSubcategory("");
     setFilterMonth("");
   }
 
@@ -315,6 +302,7 @@ export default function ExpensesView({
           </h3>
           <NewExpenseForm
             bucket={bucket}
+            showSubcategory={showSubcategory}
             categories={categories}
             getSubcategorySuggestions={getSubcategorySuggestions}
             onSubmit={(e) => onAdd(e)}
@@ -352,21 +340,7 @@ export default function ExpensesView({
               </option>
             ))}
           </select>
-          {bucket === "other" && subcategoryOptions.length > 0 && (
-            <select
-              value={filterSubcategory}
-              onChange={(e) => setFilterSubcategory(e.target.value)}
-              className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
-            >
-              <option value="">Все подкатегории</option>
-              {subcategoryOptions.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          )}
-          {(filterCategory || filterSubcategory || filterMonth) && (
+          {(filterCategory || filterMonth) && (
             <button
               type="button"
               onClick={clearFilters}
@@ -424,7 +398,7 @@ export default function ExpensesView({
                         <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
                           {e.category}
                         </span>
-                        {e.subcategory && (
+                        {showSubcategory && e.subcategory && (
                           <span className="text-sm text-zinc-600 dark:text-zinc-400">
                             · {e.subcategory}
                           </span>
@@ -456,7 +430,7 @@ export default function ExpensesView({
                   <tr>
                     <th className="px-4 py-2">Дата</th>
                     <th className="px-4 py-2">Категория</th>
-                    <th className="px-4 py-2">Подкатегория</th>
+                    {showSubcategory && <th className="px-4 py-2">Подкатегория</th>}
                     <th className="px-4 py-2">Описание</th>
                     <th className="px-4 py-2 text-right">Сумма</th>
                     <th className="w-12"></th>
@@ -484,6 +458,7 @@ export default function ExpensesView({
                       <ExpenseRow
                         key={e.id}
                         expense={e}
+                        showSubcategory={showSubcategory}
                         onEdit={() => setEditingId(e.id)}
                       />
                     ),
@@ -491,7 +466,7 @@ export default function ExpensesView({
                 </tbody>
                 <tfoot className="bg-zinc-50 font-medium text-zinc-900 dark:bg-zinc-900 dark:text-zinc-50">
                   <tr>
-                    <td colSpan={4} className="px-4 py-3 text-right text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                    <td colSpan={showSubcategory ? 4 : 3} className="px-4 py-3 text-right text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                       Итого
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-base tabular-nums">
@@ -511,12 +486,14 @@ export default function ExpensesView({
 
 function NewExpenseForm({
   bucket,
+  showSubcategory,
   categories,
   getSubcategorySuggestions,
   onSubmit,
   generateId,
 }: {
   bucket: ExpenseBucket;
+  showSubcategory: boolean;
   categories: string[];
   getSubcategorySuggestions: (category: string) => string[];
   onSubmit: (e: Expense) => void;
@@ -538,7 +515,7 @@ function NewExpenseForm({
       date,
       bucket,
       category: cat,
-      subcategory: subcategory.trim() || undefined,
+      subcategory: showSubcategory ? subcategory.trim() || undefined : undefined,
       description: description.trim() || undefined,
       amount: amt,
       createdAt: new Date().toISOString(),
@@ -596,26 +573,26 @@ function NewExpenseForm({
           </datalist>
         )}
       </div>
-      <div>
-        <label className="mb-0.5 block text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
-          Подкатегория <span className="text-zinc-400">(необязательно)</span>
-        </label>
-        <input
-          type="text"
-          value={subcategory}
-          onChange={(e) => setSubcategory(e.target.value)}
-          {...(bucket === "home" ? { list: "expense-subcategories" } : {})}
-          placeholder={bucket === "home" ? "Окна, Кирпич…" : "напиши подкатегорию"}
-          className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
-        />
-        {bucket === "home" && (
+      {showSubcategory && (
+        <div>
+          <label className="mb-0.5 block text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+            Подкатегория <span className="text-zinc-400">(необязательно)</span>
+          </label>
+          <input
+            type="text"
+            value={subcategory}
+            onChange={(e) => setSubcategory(e.target.value)}
+            list="expense-subcategories"
+            placeholder="Окна, Кирпич…"
+            className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
+          />
           <datalist id="expense-subcategories">
             {getSubcategorySuggestions(category).map((s) => (
               <option key={s} value={s} />
             ))}
           </datalist>
-        )}
-      </div>
+        </div>
+      )}
       <div>
         <label className="mb-0.5 block text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
           Описание <span className="text-zinc-400">(необязательно)</span>
@@ -641,9 +618,11 @@ function NewExpenseForm({
 
 function ExpenseRow({
   expense,
+  showSubcategory,
   onEdit,
 }: {
   expense: Expense;
+  showSubcategory: boolean;
   onEdit: () => void;
 }) {
   return (
@@ -654,9 +633,11 @@ function ExpenseRow({
       <td className="px-4 py-2.5 text-sm font-medium text-zinc-900 dark:text-zinc-100">
         {expense.category}
       </td>
-      <td className="px-4 py-2.5 text-sm text-zinc-600 dark:text-zinc-400">
-        {expense.subcategory ?? "—"}
-      </td>
+      {showSubcategory && (
+        <td className="px-4 py-2.5 text-sm text-zinc-600 dark:text-zinc-400">
+          {expense.subcategory ?? "—"}
+        </td>
+      )}
       <td className="px-4 py-2.5 text-sm text-zinc-600 dark:text-zinc-400">
         {expense.description ?? "—"}
       </td>
@@ -700,6 +681,8 @@ function ExpenseEditRow({
   const [description, setDescription] = useState(expense.description ?? "");
   const [amount, setAmount] = useState(String(expense.amount));
 
+  const showSubcategory = expense.bucket === "home";
+
   function save() {
     const cat = category.trim();
     const amt = parseFloat(amount.replace(/[^\d.,]/g, "").replace(",", "."));
@@ -707,7 +690,7 @@ function ExpenseEditRow({
     onSave({
       date,
       category: cat,
-      subcategory: subcategory.trim() || undefined,
+      subcategory: showSubcategory ? subcategory.trim() || undefined : undefined,
       description: description.trim() || undefined,
       amount: amt,
     });
@@ -728,10 +711,10 @@ function ExpenseEditRow({
           type="text"
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          {...(expense.bucket === "home" ? { list: "expense-categories" } : {})}
+          {...(showSubcategory ? { list: "expense-categories" } : {})}
           className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
         />
-        {expense.bucket === "home" && (
+        {showSubcategory && (
           <datalist id="expense-categories">
             {categories.map((c) => (
               <option key={c} value={c} />
@@ -739,22 +722,22 @@ function ExpenseEditRow({
           </datalist>
         )}
       </td>
-      <td className="px-3 py-2 align-top">
-        <input
-          type="text"
-          value={subcategory}
-          onChange={(e) => setSubcategory(e.target.value)}
-          {...(expense.bucket === "home" ? { list: "expense-subcategories" } : {})}
-          className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
-        />
-        {expense.bucket === "home" && (
+      {showSubcategory && (
+        <td className="px-3 py-2 align-top">
+          <input
+            type="text"
+            value={subcategory}
+            onChange={(e) => setSubcategory(e.target.value)}
+            list="expense-subcategories"
+            className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-900 outline-none focus:border-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-50"
+          />
           <datalist id="expense-subcategories">
             {getSubcategorySuggestions(category).map((s) => (
               <option key={s} value={s} />
             ))}
           </datalist>
-        )}
-      </td>
+        </td>
+      )}
       <td className="px-3 py-2 align-top">
         <input
           type="text"
@@ -822,6 +805,8 @@ function ExpenseInlineEdit({
   const [description, setDescription] = useState(expense.description ?? "");
   const [amount, setAmount] = useState(String(expense.amount));
 
+  const showSubcategory = expense.bucket === "home";
+
   function save(e: React.FormEvent) {
     e.preventDefault();
     const cat = category.trim();
@@ -830,7 +815,7 @@ function ExpenseInlineEdit({
     onSave({
       date,
       category: cat,
-      subcategory: subcategory.trim() || undefined,
+      subcategory: showSubcategory ? subcategory.trim() || undefined : undefined,
       description: description.trim() || undefined,
       amount: amt,
     });
@@ -864,17 +849,17 @@ function ExpenseInlineEdit({
           </datalist>
         )}
       </div>
-      <div>
-        <label className={labelCls}>Подкатегория</label>
-        <input type="text" value={subcategory} onChange={(e) => setSubcategory(e.target.value)} {...(expense.bucket === "home" ? { list: "expense-subcategories" } : {})} className={inputCls} />
-        {expense.bucket === "home" && (
+      {showSubcategory && (
+        <div>
+          <label className={labelCls}>Подкатегория</label>
+          <input type="text" value={subcategory} onChange={(e) => setSubcategory(e.target.value)} list="expense-subcategories" className={inputCls} />
           <datalist id="expense-subcategories">
             {getSubcategorySuggestions(category).map((s) => (
               <option key={s} value={s} />
             ))}
           </datalist>
-        )}
-      </div>
+        </div>
+      )}
       <div>
         <label className={labelCls}>Описание</label>
         <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} />
