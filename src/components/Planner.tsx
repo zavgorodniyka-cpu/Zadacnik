@@ -117,6 +117,12 @@ export default function Planner({ session }: Props) {
     typeof navigator === "undefined" ? true : navigator.onLine,
   );
   const [queueLen, setQueueLen] = useState<number>(0);
+  const [hasSyncError, setHasSyncError] = useState(false);
+  const [lastRefetchAt, setLastRefetchAt] = useState<number | null>(null);
+  const [refetching, setRefetching] = useState(false);
+  const [refetchNonce, setRefetchNonce] = useState(0); // bump to trigger manual refetch
+  // «Тикалка» для перерисовки лейбла «обновлено N сек назад» раз в секунду.
+  const [, setNowTick] = useState(0);
 
   const reminderDefaults = REMINDER_DEFAULTS;
 
@@ -269,11 +275,25 @@ export default function Planner({ session }: Props) {
     saveOfflineCache({ tasks, anniversaries, folders, ideas, expenses });
   }, [tasks, anniversaries, folders, ideas, expenses, hydrated]);
 
+  // Запускает попытку синхронизации очереди и отмечает «сбой», если что-то
+  // дропнулось после трёх попыток. На успех — сбрасывает флаг ошибки.
+  function runDrainQueue() {
+    return drainQueue((remaining) => setQueueLen(remaining))
+      .then((r) => {
+        if (r.dropped > 0) setHasSyncError(true);
+        else if (r.failed === 0) setHasSyncError(false);
+      })
+      .catch((err) => {
+        setHasSyncError(true);
+        logErr(err);
+      });
+  }
+
   // Online/offline detection + queue draining.
   useEffect(() => {
     function handleOnline() {
       setIsOnline(true);
-      drainQueue((remaining) => setQueueLen(remaining)).catch(logErr);
+      runDrainQueue();
     }
     function handleOffline() {
       setIsOnline(false);
@@ -282,12 +302,13 @@ export default function Planner({ session }: Props) {
     window.addEventListener("offline", handleOffline);
     // On boot, if we're online and the queue has pending items, try to drain.
     if (navigator.onLine && getQueueLength() > 0) {
-      drainQueue((remaining) => setQueueLen(remaining)).catch(logErr);
+      runDrainQueue();
     }
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -301,11 +322,20 @@ export default function Planner({ session }: Props) {
     if (!hydrated) return;
     let cancelled = false;
 
-    async function refetchAll() {
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    async function refetchAll(opts?: { force?: boolean }) {
+      // На ручной обновляции (force) не требуем visibility — пользователь
+      // явно нажал кнопку, ему важно получить ответ.
+      if (
+        !opts?.force &&
+        typeof document !== "undefined" &&
+        document.visibilityState !== "visible"
+      ) {
+        return;
+      }
       // Skip refetch while there are pending offline mutations — server state
       // would overwrite local edits before the queue can drain.
       if (getQueueLength() > 0) return;
+      setRefetching(true);
       try {
         const [tR, aR, fR, iR, exR] = await Promise.allSettled([
           fetchTasks(),
@@ -315,15 +345,33 @@ export default function Planner({ session }: Props) {
           fetchExpenses(),
         ]);
         if (cancelled) return;
+        const allOk =
+          tR.status === "fulfilled" &&
+          aR.status === "fulfilled" &&
+          fR.status === "fulfilled" &&
+          iR.status === "fulfilled" &&
+          exR.status === "fulfilled";
         if (tR.status === "fulfilled") setTasks(tR.value);
         if (aR.status === "fulfilled") setAnniversaries(aR.value);
         if (fR.status === "fulfilled") setFolders(fR.value);
         if (iR.status === "fulfilled") setIdeas(iR.value);
         if (exR.status === "fulfilled") setExpenses(exR.value);
+        if (allOk) {
+          setLastRefetchAt(Date.now());
+          setHasSyncError(false);
+        } else {
+          setHasSyncError(true);
+        }
       } catch (err) {
+        if (!cancelled) setHasSyncError(true);
         logErr(err);
+      } finally {
+        if (!cancelled) setRefetching(false);
       }
     }
+
+    // Стартовый рефетч (после загрузки) — отмечаем «обновлено».
+    refetchAll({ force: true });
 
     function onVisibilityChange() {
       if (document.visibilityState === "visible") refetchAll();
@@ -337,7 +385,15 @@ export default function Planner({ session }: Props) {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       clearInterval(intervalId);
     };
-  }, [hydrated]);
+  }, [hydrated, refetchNonce]);
+
+  // Тикалка раз в секунду, чтобы лейбл «обновлено N сек назад» обновлялся.
+  // Эффект работает только когда есть что отображать (есть lastRefetchAt).
+  useEffect(() => {
+    if (!lastRefetchAt) return;
+    const id = setInterval(() => setNowTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [lastRefetchAt]);
 
   useEffect(() => {
     if (!hydrated || !notifySettings.enabled) return;
@@ -880,25 +936,21 @@ export default function Planner({ session }: Props) {
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
             Задачник
           </h1>
-          {(!isOnline || queueLen > 0) && (
-            <button
-              type="button"
-              onClick={() => {
-                if (!isOnline) return;
-                drainQueue((remaining) => setQueueLen(remaining)).catch(logErr);
-              }}
-              disabled={!isOnline}
-              className={[
-                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition",
-                !isOnline
-                  ? "cursor-default bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
-                  : "cursor-pointer bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-950/50 dark:text-blue-200 dark:hover:bg-blue-900/60",
-              ].join(" ")}
-              title={!isOnline ? "Без интернета — изменения сохраняются локально" : `Нажми, чтобы повторить синхронизацию (${queueLen} в очереди)`}
-            >
-              {!isOnline ? "● Офлайн" : `↻ Синхронизация · ${queueLen}`}
-            </button>
-          )}
+          <SyncPill
+            isOnline={isOnline}
+            queueLen={queueLen}
+            hasSyncError={hasSyncError}
+            lastRefetchAt={lastRefetchAt}
+            refetching={refetching}
+            onRetry={() => {
+              if (!navigator.onLine) return;
+              runDrainQueue().then(() => setRefetchNonce((n) => n + 1));
+            }}
+            onRefresh={() => {
+              if (!navigator.onLine) return;
+              setRefetchNonce((n) => n + 1);
+            }}
+          />
           <div className="flex items-center gap-1.5 sm:hidden">
             <PushButton />
             <NotificationsButton
@@ -1200,6 +1252,92 @@ function MoreMenu({
         </div>
       )}
     </div>
+  );
+}
+
+function formatAgo(ms: number): string {
+  const sec = Math.floor(ms / 1000);
+  if (sec < 5) return "только что";
+  if (sec < 60) return `${sec} сек назад`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} мин назад`;
+  const h = Math.floor(min / 60);
+  return `${h} ч назад`;
+}
+
+function SyncPill({
+  isOnline,
+  queueLen,
+  hasSyncError,
+  lastRefetchAt,
+  refetching,
+  onRetry,
+  onRefresh,
+}: {
+  isOnline: boolean;
+  queueLen: number;
+  hasSyncError: boolean;
+  lastRefetchAt: number | null;
+  refetching: boolean;
+  onRetry: () => void;
+  onRefresh: () => void;
+}) {
+  // Приоритет состояний: оффлайн → ошибка → идёт синхронизация → ок.
+  let state: "offline" | "error" | "syncing" | "ok";
+  if (!isOnline) state = "offline";
+  else if (hasSyncError) state = "error";
+  else if (queueLen > 0 || refetching) state = "syncing";
+  else state = "ok";
+
+  const ago = lastRefetchAt ? formatAgo(Date.now() - lastRefetchAt) : null;
+
+  if (state === "ok") {
+    return (
+      <button
+        type="button"
+        onClick={onRefresh}
+        title={ago ? `Обновлено ${ago} — нажми, чтобы обновить сейчас` : "Обновить с сервера"}
+        className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 transition hover:bg-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-900/60"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        Синхронизировано
+        {ago && <span className="text-emerald-700/70 dark:text-emerald-300/70">· {ago}</span>}
+      </button>
+    );
+  }
+  if (state === "syncing") {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-950/50 dark:text-blue-200"
+        title={queueLen > 0 ? `${queueLen} изменений в очереди` : "Обновление…"}
+      >
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+        Синхронизация{queueLen > 0 ? ` · ${queueLen}` : "…"}
+      </span>
+    );
+  }
+  if (state === "offline") {
+    return (
+      <span
+        className="inline-flex cursor-default items-center gap-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
+        title="Без интернета — изменения сохраняются локально"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        Офлайн
+      </span>
+    );
+  }
+  // error
+  return (
+    <button
+      type="button"
+      onClick={onRetry}
+      title="Что-то не дошло до облака — нажми, чтобы повторить"
+      className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-800 transition hover:bg-red-200 dark:bg-red-950/50 dark:text-red-200 dark:hover:bg-red-900/60"
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+      Сбой синхронизации · повторить
+    </button>
   );
 }
 
