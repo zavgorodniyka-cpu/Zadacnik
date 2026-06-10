@@ -1,7 +1,6 @@
 "use client";
 
 import { getSupabase } from "@/lib/supabase";
-import { getQueueLength } from "@/lib/offline";
 
 /** Tables that push changes to all open devices via Supabase Realtime. */
 export const REALTIME_TABLES = [
@@ -21,8 +20,7 @@ export type RealtimeTable = (typeof REALTIME_TABLES)[number];
 export type RealtimeHandlers = Partial<Record<RealtimeTable, () => void | Promise<void>>>;
 
 /**
- * Subscribe to Postgres row changes. Handlers run only when the local sync
- * queue is empty — otherwise pending offline writes would be overwritten.
+ * Subscribe to Postgres row changes — other devices see updates immediately.
  */
 export function subscribePlannerRealtime(
   userId: string,
@@ -40,7 +38,6 @@ export function subscribePlannerRealtime(
       "postgres_changes",
       { event: "*", schema: "public", table },
       () => {
-        if (getQueueLength() > 0) return;
         void handler();
       },
     );

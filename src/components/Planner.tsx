@@ -78,6 +78,7 @@ import {
   syncOrQueue as syncOrQueueMutation,
 } from "@/lib/offline";
 import { subscribePlannerRealtime } from "@/lib/realtime";
+import { withTimeout } from "@/lib/async";
 import AnniversariesWidget from "./AnniversariesWidget";
 import Calendar from "./Calendar";
 import DatelessList from "./DatelessList";
@@ -425,19 +426,20 @@ export default function Planner({ session }: Props) {
       ) {
         return;
       }
-      // Skip refetch while there are pending offline mutations — server state
-      // would overwrite local edits before the queue can drain.
-      if (getQueueLength() > 0) return;
+      // Skip refetch while there are pending offline mutations — unless the
+      // user explicitly asked to refresh from the server.
+      if (!opts?.force && getQueueLength() > 0) return;
       setRefetching(true);
+      const REFETCH_MS = 20_000;
       try {
         const [tR, aR, fR, iR, exR, hR, hcR] = await Promise.allSettled([
-          fetchTasks(),
-          fetchAnniversaries(),
-          fetchFolders(),
-          fetchIdeas(),
-          fetchExpenses(),
-          fetchHabits(),
-          fetchHabitCheckins(),
+          withTimeout(fetchTasks(), REFETCH_MS, "tasks"),
+          withTimeout(fetchAnniversaries(), REFETCH_MS, "anniversaries"),
+          withTimeout(fetchFolders(), REFETCH_MS, "folders"),
+          withTimeout(fetchIdeas(), REFETCH_MS, "ideas"),
+          withTimeout(fetchExpenses(), REFETCH_MS, "expenses"),
+          withTimeout(fetchHabits(), REFETCH_MS, "habits"),
+          withTimeout(fetchHabitCheckins(), REFETCH_MS, "habit_checkins"),
         ]);
         if (cancelled) return;
         const allOk =
@@ -1083,7 +1085,7 @@ export default function Planner({ session }: Props) {
             }}
             onRefresh={() => {
               if (!navigator.onLine) return;
-              setRefetchNonce((n) => n + 1);
+              void runDrainQueue().then(() => setRefetchNonce((n) => n + 1));
             }}
           />
           <div className="flex items-center gap-1.5 sm:hidden">
@@ -1452,13 +1454,19 @@ function SyncPill({
   }
   if (state === "syncing") {
     return (
-      <span
-        className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-950/50 dark:text-blue-200"
-        title={queueLen > 0 ? `${queueLen} изменений в очереди` : "Обновление…"}
+      <button
+        type="button"
+        onClick={onRefresh}
+        className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-800 transition hover:bg-blue-200 dark:bg-blue-950/50 dark:text-blue-200 dark:hover:bg-blue-900/60"
+        title={
+          queueLen > 0
+            ? `${queueLen} в очереди — нажми, чтобы обновить с сервера`
+            : "Обновление… нажми, чтобы обновить сейчас"
+        }
       >
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
         Синхронизация{queueLen > 0 ? ` · ${queueLen}` : "…"}
-      </span>
+      </button>
     );
   }
   if (state === "offline") {

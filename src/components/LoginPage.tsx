@@ -1,9 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getSupabase } from "@/lib/supabase";
 
 type Status = "idle" | "sending" | "code" | "verifying" | "error";
+
+const PENDING_KEY = "planner.login.pending";
+
+function loadPending(): { email: string } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(PENDING_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { email?: string };
+    if (!parsed.email) return null;
+    return { email: parsed.email };
+  } catch {
+    return null;
+  }
+}
+
+function savePending(email: string) {
+  sessionStorage.setItem(PENDING_KEY, JSON.stringify({ email }));
+}
+
+function clearPending() {
+  sessionStorage.removeItem(PENDING_KEY);
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -11,12 +34,21 @@ export default function LoginPage() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
+  useEffect(() => {
+    const pending = loadPending();
+    if (pending) {
+      setEmail(pending.email);
+      setStatus("code");
+    }
+  }, []);
+
   async function handleRequestCode(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = email.trim();
     if (!trimmed) return;
     setStatus("sending");
     setErrorMsg("");
+    savePending(trimmed);
     try {
       const { error } = await getSupabase().auth.signInWithOtp({
         email: trimmed,
@@ -25,8 +57,11 @@ export default function LoginPage() {
       if (error) throw error;
       setStatus("code");
     } catch (err) {
-      setStatus("error");
-      setErrorMsg(err instanceof Error ? err.message : "Не удалось отправить");
+      // Письмо могло уйти, даже если ответ Supabase не дошёл (Safari / timeout).
+      setStatus("code");
+      setErrorMsg(
+        "Ответ сервера задержался. Если код уже в почте — введите его ниже. Иначе нажмите «Отправить снова».",
+      );
     }
   }
 
@@ -43,9 +78,10 @@ export default function LoginPage() {
         type: "email",
       });
       if (error) throw error;
+      clearPending();
       // session is set automatically; AuthGate перерисуется
     } catch (err) {
-      setStatus("error");
+      setStatus("code");
       setErrorMsg(
         err instanceof Error ? err.message : "Неверный код. Попробуй ещё раз.",
       );
@@ -53,9 +89,30 @@ export default function LoginPage() {
   }
 
   function reset() {
+    clearPending();
     setStatus("idle");
     setCode("");
     setErrorMsg("");
+  }
+
+  async function resendCode() {
+    const trimmed = email.trim();
+    if (!trimmed) return;
+    setStatus("sending");
+    setErrorMsg("");
+    savePending(trimmed);
+    try {
+      const { error } = await getSupabase().auth.signInWithOtp({
+        email: trimmed,
+        options: { shouldCreateUser: true },
+      });
+      if (error) throw error;
+      setStatus("code");
+      setErrorMsg("");
+    } catch {
+      setStatus("code");
+      setErrorMsg("Если новый код не пришёл — подождите минуту и попробуйте ещё раз.");
+    }
   }
 
   return (
@@ -94,8 +151,8 @@ export default function LoginPage() {
               />
             </div>
 
-            {status === "error" && (
-              <p className="text-xs text-red-600 dark:text-red-400">{errorMsg}</p>
+            {errorMsg && (
+              <p className="text-xs text-amber-700 dark:text-amber-300">{errorMsg}</p>
             )}
 
             <button
@@ -104,6 +161,15 @@ export default function LoginPage() {
               className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
               {status === "verifying" ? "Проверяю…" : "Войти"}
+            </button>
+
+            <button
+              type="button"
+              onClick={resendCode}
+              disabled={status === "sending" || status === "verifying"}
+              className="block w-full text-center text-xs text-zinc-500 underline-offset-2 hover:underline disabled:opacity-40 dark:text-zinc-400"
+            >
+              {status === "sending" ? "Отправляю…" : "Отправить код снова"}
             </button>
 
             <button
