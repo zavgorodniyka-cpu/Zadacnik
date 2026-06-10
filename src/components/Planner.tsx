@@ -174,9 +174,15 @@ export default function Planner({ session }: Props) {
   useEffect(() => {
     let cancelled = false;
 
-    // Step 1 — hydrate from offline cache so the app is usable immediately.
+    // Step 1 — hydrate from offline cache (только если там есть данные).
     const cached = loadOfflineCache();
-    if (cached) {
+    const cacheHasData =
+      cached &&
+      ((cached.tasks?.length ?? 0) > 0 ||
+        (cached.anniversaries?.length ?? 0) > 0 ||
+        (cached.folders?.length ?? 0) > 0 ||
+        (cached.ideas?.length ?? 0) > 0);
+    if (cacheHasData && cached) {
       setTasks(cached.tasks ?? []);
       setAnniversaries(cached.anniversaries ?? []);
       setFolders(cached.folders ?? []);
@@ -444,7 +450,7 @@ export default function Planner({ session }: Props) {
         logErr(err);
         updateSyncIndicatorFromQueue();
       } finally {
-        if (!cancelled) setRefetching(false);
+        setRefetching(false);
       }
     }
 
@@ -462,6 +468,7 @@ export default function Planner({ session }: Props) {
 
     return () => {
       cancelled = true;
+      setRefetching(false);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       clearInterval(intervalId);
     };
@@ -1410,7 +1417,7 @@ function SyncPill({
   let state: "offline" | "error" | "syncing" | "ok";
   if (!isOnline) state = "offline";
   else if (hasSyncError) state = "error";
-  else if (queueLen > 0 || refetching) state = "syncing";
+  else if (queueLen > 0) state = "syncing";
   else state = "ok";
 
   const ago = lastRefetchAt ? formatAgo(Date.now() - lastRefetchAt) : null;
