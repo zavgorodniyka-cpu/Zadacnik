@@ -40,6 +40,13 @@ import {
   insertHabit as dbInsertHabit,
   updateHabit as dbUpdateHabit,
 } from "@/lib/db/habits";
+import {
+  bulkInsertWords,
+  deleteLesson as dbDeleteLesson,
+  deleteWord as dbDeleteWord,
+  insertLesson as dbInsertLesson,
+} from "@/lib/db/english";
+import type { Lesson, Word } from "@/types/english";
 
 const CACHE_KEY = "planner.offline-cache.v1";
 const QUEUE_KEY = "planner.sync-queue.v1";
@@ -106,11 +113,21 @@ export type QueueEntry =
   | { kind: "habit.update"; id: string; patch: Partial<Habit> }
   | { kind: "habit.delete"; id: string }
   | { kind: "checkin.insert"; checkin: HabitCheckin }
-  | { kind: "checkin.delete"; habitId: string; date: string };
+  | { kind: "checkin.delete"; habitId: string; date: string }
+  | { kind: "lesson.create"; lesson: Lesson; words: Word[] }
+  | { kind: "lesson.delete"; id: string }
+  | { kind: "word.delete"; id: string };
 
-type StoredEntry = QueueEntry & { _attempts?: number };
+type StoredEntry = QueueEntry & {
+  _attempts?: number;
+  /** Unix ms — do not retry before this time (exponential backoff). */
+  _nextRetryAt?: number;
+};
 
-const MAX_ATTEMPTS = 3;
+/** Backoff: 2s, 4s, 8s … capped at 60s. Entries are never dropped. */
+function retryDelayMs(attempts: number): number {
+  return Math.min(2000 * 2 ** Math.max(0, attempts - 1), 60_000);
+}
 
 function loadQueue(): QueueEntry[] {
   if (typeof window === "undefined") return [];
@@ -141,6 +158,21 @@ export function enqueueMutation(entry: QueueEntry): void {
   const queue = loadQueue();
   queue.push(entry);
   saveQueue(queue);
+}
+
+/** Try a DB write; on failure enqueue for later sync. */
+export async function syncOrQueue(
+  attempt: () => Promise<void>,
+  fallbackEntry: QueueEntry,
+  onQueueChange?: () => void,
+): Promise<void> {
+  await trySync(attempt, fallbackEntry);
+  onQueueChange?.();
+}
+
+export function getQueueFailureCount(): number {
+  const raw = loadQueue() as StoredEntry[];
+  return raw.filter((e) => (e._attempts ?? 0) > 0).length;
 }
 
 async function applyEntry(entry: QueueEntry): Promise<void> {
@@ -195,6 +227,13 @@ async function applyEntry(entry: QueueEntry): Promise<void> {
       return dbInsertCheckin(entry.checkin);
     case "checkin.delete":
       return dbDeleteCheckin(entry.habitId, entry.date);
+    case "lesson.create":
+      await dbInsertLesson(entry.lesson);
+      return bulkInsertWords(entry.words);
+    case "lesson.delete":
+      return dbDeleteLesson(entry.id);
+    case "word.delete":
+      return dbDeleteWord(entry.id);
   }
 }
 
@@ -202,45 +241,50 @@ let isDraining = false;
 
 export async function drainQueue(
   onChange?: (remaining: number) => void,
-): Promise<{ remaining: number; succeeded: number; failed: number; dropped: number }> {
+): Promise<{ remaining: number; succeeded: number; failed: number; pendingRetry: number }> {
   if (isDraining)
-    return { remaining: getQueueLength(), succeeded: 0, failed: 0, dropped: 0 };
+    return { remaining: getQueueLength(), succeeded: 0, failed: 0, pendingRetry: 0 };
   isDraining = true;
   let succeeded = 0;
   let failed = 0;
-  let dropped = 0;
+  let pendingRetry = 0;
+  const now = Date.now();
   try {
     const queue = loadQueue() as StoredEntry[];
     onChange?.(queue.length);
 
     const remaining: StoredEntry[] = [];
     for (const entry of queue) {
+      if (entry._nextRetryAt && entry._nextRetryAt > now) {
+        remaining.push(entry);
+        pendingRetry += 1;
+        continue;
+      }
+
       try {
         await applyEntry(entry);
         succeeded += 1;
       } catch (err) {
         const attempts = (entry._attempts ?? 0) + 1;
-        if (attempts >= MAX_ATTEMPTS) {
-          dropped += 1;
-          if (typeof console !== "undefined") {
-            console.warn(
-              "[planner offline] dropping queue entry after",
-              MAX_ATTEMPTS,
-              "attempts:",
-              entry.kind,
-              err,
-            );
-          }
-        } else {
-          remaining.push({ ...entry, _attempts: attempts });
-          failed += 1;
+        remaining.push({
+          ...entry,
+          _attempts: attempts,
+          _nextRetryAt: now + retryDelayMs(attempts),
+        });
+        failed += 1;
+        if (typeof console !== "undefined") {
+          console.warn(
+            "[planner offline] queued retry",
+            attempts,
+            entry.kind,
+            err,
+          );
         }
       }
-      onChange?.(remaining.length + (queue.length - queue.indexOf(entry) - 1));
     }
     saveQueue(remaining);
     onChange?.(remaining.length);
-    return { remaining: remaining.length, succeeded, failed, dropped };
+    return { remaining: remaining.length, succeeded, failed, pendingRetry };
   } finally {
     isDraining = false;
   }

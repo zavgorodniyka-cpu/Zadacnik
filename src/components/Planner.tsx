@@ -71,11 +71,13 @@ import {
 import {
   drainQueue,
   enqueueMutation,
+  getQueueFailureCount,
   getQueueLength,
   loadOfflineCache,
   saveOfflineCache,
-  trySync,
+  syncOrQueue as syncOrQueueMutation,
 } from "@/lib/offline";
+import { subscribePlannerRealtime } from "@/lib/realtime";
 import AnniversariesWidget from "./AnniversariesWidget";
 import Calendar from "./Calendar";
 import DatelessList from "./DatelessList";
@@ -296,13 +298,14 @@ export default function Planner({ session }: Props) {
     saveOfflineCache({ tasks, anniversaries, folders, ideas, expenses, habits, habitCheckins });
   }, [tasks, anniversaries, folders, ideas, expenses, habits, habitCheckins, hydrated]);
 
-  // Запускает попытку синхронизации очереди и отмечает «сбой», если что-то
-  // дропнулось после трёх попыток. На успех — сбрасывает флаг ошибки.
+  // Запускает попытку синхронизации очереди и отмечает «сбой», если есть
+  // записи с неудачными попытками. Данные из очереди больше не удаляются.
   function runDrainQueue() {
     return drainQueue((remaining) => setQueueLen(remaining))
       .then((r) => {
-        if (r.dropped > 0) setHasSyncError(true);
-        else if (r.failed === 0) setHasSyncError(false);
+        const failures = getQueueFailureCount();
+        if (failures > 0 || r.failed > 0) setHasSyncError(true);
+        else if (r.remaining === 0) setHasSyncError(false);
       })
       .catch((err) => {
         setHasSyncError(true);
@@ -310,11 +313,23 @@ export default function Planner({ session }: Props) {
       });
   }
 
+  function bumpQueueLen() {
+    setQueueLen(getQueueLength());
+  }
+
+  // Helper: try to sync a mutation; if it fails, push to offline queue.
+  function syncOrQueue(
+    attempt: () => Promise<void>,
+    entry: Parameters<typeof enqueueMutation>[0],
+  ) {
+    void syncOrQueueMutation(attempt, entry, bumpQueueLen);
+  }
+
   // Online/offline detection + queue draining.
   useEffect(() => {
     function handleOnline() {
       setIsOnline(true);
-      runDrainQueue();
+      void runDrainQueue();
     }
     function handleOffline() {
       setIsOnline(false);
@@ -323,14 +338,71 @@ export default function Planner({ session }: Props) {
     window.addEventListener("offline", handleOffline);
     // On boot, if we're online and the queue has pending items, try to drain.
     if (navigator.onLine && getQueueLength() > 0) {
-      runDrainQueue();
+      void runDrainQueue();
     }
+    // Retry queued mutations periodically (mobile tabs may miss "online" events).
+    const drainInterval = setInterval(() => {
+      if (navigator.onLine && getQueueLength() > 0) void runDrainQueue();
+    }, 12_000);
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      clearInterval(drainInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Supabase Realtime — мгновенное обновление между телефоном и десктопом.
+  useEffect(() => {
+    if (!hydrated) return;
+
+    const refetchTasksOnly = () =>
+      fetchTasks()
+        .then(setTasks)
+        .catch(logErr);
+    const refetchAnniversariesOnly = () =>
+      fetchAnniversaries()
+        .then(setAnniversaries)
+        .catch(logErr);
+    const refetchFoldersOnly = () =>
+      fetchFolders()
+        .then(setFolders)
+        .catch(logErr);
+    const refetchIdeasOnly = () =>
+      fetchIdeas()
+        .then(setIdeas)
+        .catch(logErr);
+    const refetchExpensesOnly = () =>
+      fetchExpenses()
+        .then(setExpenses)
+        .catch(logErr);
+    const refetchHabitsOnly = () =>
+      fetchHabits()
+        .then(setHabits)
+        .catch(logErr);
+    const refetchCheckinsOnly = () =>
+      fetchHabitCheckins()
+        .then(setHabitCheckins)
+        .catch(logErr);
+
+    const unsubscribe = subscribePlannerRealtime(
+      userId,
+      {
+        tasks: refetchTasksOnly,
+        anniversaries: refetchAnniversariesOnly,
+        folders: refetchFoldersOnly,
+        ideas: refetchIdeasOnly,
+        expenses: refetchExpensesOnly,
+        habits: refetchHabitsOnly,
+        habit_checkins: refetchCheckinsOnly,
+      },
+      (status) => {
+        if (status === "SUBSCRIBED") setLastRefetchAt(Date.now());
+      },
+    );
+
+    return unsubscribe;
+  }, [hydrated, userId]);
 
   useEffect(() => {
     if (hydrated) saveSettings(notifySettings);
@@ -401,11 +473,13 @@ export default function Planner({ session }: Props) {
     refetchAll({ force: true });
 
     function onVisibilityChange() {
-      if (document.visibilityState === "visible") refetchAll();
+      if (document.visibilityState === "visible") {
+        void runDrainQueue().then(() => refetchAll());
+      }
     }
 
     document.addEventListener("visibilitychange", onVisibilityChange);
-    const intervalId = setInterval(refetchAll, 30_000);
+    const intervalId = setInterval(refetchAll, 60_000);
 
     return () => {
       cancelled = true;
@@ -519,14 +593,6 @@ export default function Planner({ session }: Props) {
     },
     [filteredTasks, isSearching, DATELESS_HIDDEN_TAGS],
   );
-
-  // Helper: try to sync a mutation; if it fails, push to offline queue.
-  function syncOrQueue(
-    attempt: () => Promise<void>,
-    entry: Parameters<typeof enqueueMutation>[0],
-  ) {
-    trySync(attempt, entry).finally(() => setQueueLen(getQueueLength()));
-  }
 
   const upcoming = useMemo(() => {
     const today = todayISO();
@@ -1155,7 +1221,7 @@ export default function Planner({ session }: Props) {
           generateId={generateId}
         />
       ) : view === "english" ? (
-        <EnglishView userId={userId} />
+        <EnglishView userId={userId} onQueueChange={bumpQueueLen} />
       ) : (
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
           {/* Left column on desktop, first three blocks on mobile */}

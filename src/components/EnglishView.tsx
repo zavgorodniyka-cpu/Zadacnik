@@ -1,27 +1,40 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Lesson, Word } from "@/types/english";
 import { generateId } from "@/lib/storage";
 import {
+  fetchLessons,
+  fetchWords,
   bulkInsertWords,
   deleteLesson as dbDeleteLesson,
   deleteWord as dbDeleteWord,
-  fetchLessons,
-  fetchWords,
   insertLesson as dbInsertLesson,
 } from "@/lib/db/english";
+import { syncOrQueue } from "@/lib/offline";
+import { subscribePlannerRealtime } from "@/lib/realtime";
 
 type Props = {
   userId: string;
+  onQueueChange?: () => void;
 };
 
-export default function EnglishView({ userId }: Props) {
+export default function EnglishView({ userId, onQueueChange }: Props) {
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [words, setWords] = useState<Word[]>([]);
   const [loading, setLoading] = useState(true);
   const [openLessonId, setOpenLessonId] = useState<string | null>(null);
   const [showAddLesson, setShowAddLesson] = useState(false);
+
+  const reloadEnglish = useCallback(async () => {
+    try {
+      const [ls, ws] = await Promise.all([fetchLessons(), fetchWords()]);
+      setLessons(ls);
+      setWords(ws);
+    } catch (err) {
+      console.error("[english]", err);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,6 +54,21 @@ export default function EnglishView({ userId }: Props) {
       cancelled = true;
     };
   }, [userId]);
+
+  useEffect(() => {
+    if (loading) return;
+    return subscribePlannerRealtime(userId, {
+      lessons: reloadEnglish,
+      words: reloadEnglish,
+    });
+  }, [userId, loading, reloadEnglish]);
+
+  const queueSync = useCallback(
+    (attempt: () => Promise<void>, entry: Parameters<typeof syncOrQueue>[1]) => {
+      void syncOrQueue(attempt, entry, onQueueChange);
+    },
+    [onQueueChange],
+  );
 
   const wordsByLesson = useMemo(() => {
     const map = new Map<string, Word[]>();
@@ -77,12 +105,13 @@ export default function EnglishView({ userId }: Props) {
     setShowAddLesson(false);
     setOpenLessonId(lesson.id);
 
-    try {
-      await dbInsertLesson(lesson);
-      await bulkInsertWords(newWords);
-    } catch (err) {
-      console.error("[english] create lesson failed", err);
-    }
+    queueSync(
+      async () => {
+        await dbInsertLesson(lesson);
+        await bulkInsertWords(newWords);
+      },
+      { kind: "lesson.create", lesson, words: newWords },
+    );
   }
 
   async function handleDeleteLesson(id: string) {
@@ -90,20 +119,12 @@ export default function EnglishView({ userId }: Props) {
     setLessons((prev) => prev.filter((l) => l.id !== id));
     setWords((prev) => prev.filter((w) => w.lessonId !== id));
     if (openLessonId === id) setOpenLessonId(null);
-    try {
-      await dbDeleteLesson(id);
-    } catch (err) {
-      console.error("[english] delete lesson failed", err);
-    }
+    queueSync(() => dbDeleteLesson(id), { kind: "lesson.delete", id });
   }
 
   async function handleDeleteWord(id: string) {
     setWords((prev) => prev.filter((w) => w.id !== id));
-    try {
-      await dbDeleteWord(id);
-    } catch (err) {
-      console.error("[english] delete word failed", err);
-    }
+    queueSync(() => dbDeleteWord(id), { kind: "word.delete", id });
   }
 
   if (loading) {
