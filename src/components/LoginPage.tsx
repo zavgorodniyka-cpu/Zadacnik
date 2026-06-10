@@ -33,6 +33,7 @@ export default function LoginPage() {
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [resending, setResending] = useState(false);
 
   useEffect(() => {
     const pending = loadPending();
@@ -98,7 +99,7 @@ export default function LoginPage() {
   async function resendCode() {
     const trimmed = email.trim();
     if (!trimmed) return;
-    setStatus("sending");
+    setResending(true);
     setErrorMsg("");
     savePending(trimmed);
     try {
@@ -107,11 +108,12 @@ export default function LoginPage() {
         options: { shouldCreateUser: true },
       });
       if (error) throw error;
-      setStatus("code");
       setErrorMsg("");
     } catch {
-      setStatus("code");
       setErrorMsg("Если новый код не пришёл — подождите минуту и попробуйте ещё раз.");
+    } finally {
+      setResending(false);
+      setStatus("code");
     }
   }
 
@@ -166,10 +168,10 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={resendCode}
-              disabled={status === "sending" || status === "verifying"}
+              disabled={resending || status === "verifying"}
               className="block w-full text-center text-xs text-zinc-500 underline-offset-2 hover:underline disabled:opacity-40 dark:text-zinc-400"
             >
-              {status === "sending" ? "Отправляю…" : "Отправить код снова"}
+              {resending ? "Отправляю…" : "Отправить код снова"}
             </button>
 
             <button
