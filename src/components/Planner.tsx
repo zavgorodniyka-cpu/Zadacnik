@@ -194,18 +194,29 @@ export default function Planner({ session }: Props) {
         const data = await fetchAllPlannerDataSafe();
         if (cancelled) return;
 
-        const t = data.tasks ?? [];
-        const a = data.anniversaries ?? [];
-        const f = data.folders ?? [];
-        const i = data.ideas ?? [];
-        const ex = data.expenses ?? [];
+        const coreReady =
+          data.tasks !== null &&
+          data.anniversaries !== null &&
+          data.folders !== null &&
+          data.ideas !== null;
 
-        setExpenses(ex);
+        // Часть запросов не дошла — не затираем то, что уже на экране (из кеша).
+        if (!coreReady) {
+          logErr(new Error("[planner] partial cloud fetch — keeping cached UI"));
+          return;
+        }
+
+        const t = data.tasks!;
+        const a = data.anniversaries!;
+        const f = data.folders!;
+        const i = data.ideas!;
+
+        if (data.expenses !== null) setExpenses(data.expenses);
         if (data.habits) setHabits(data.habits);
         if (data.habitCheckins) setHabitCheckins(data.habitCheckins);
 
         // Seed user's house expenses on first finance load (one-time per user).
-        if (ex.length === 0 && data.expenses !== null) {
+        if (data.expenses !== null && data.expenses.length === 0) {
           const SEED_FLAG = "planner.expenses.seeded.v1";
           if (!window.localStorage.getItem(SEED_FLAG)) {
             const seeded = seedHouseExpenses();
