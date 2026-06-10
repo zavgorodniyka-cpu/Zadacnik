@@ -78,7 +78,7 @@ import {
   syncOrQueue as syncOrQueueMutation,
 } from "@/lib/offline";
 import { subscribePlannerRealtime } from "@/lib/realtime";
-import { withTimeout } from "@/lib/async";
+import { fetchAllPlannerDataSafe } from "@/lib/fetch-all";
 import AnniversariesWidget from "./AnniversariesWidget";
 import Calendar from "./Calendar";
 import DatelessList from "./DatelessList";
@@ -187,41 +187,25 @@ export default function Planner({ session }: Props) {
       setHydrated(true);
     }
     setQueueLen(getQueueLength());
+    updateSyncIndicatorFromQueue();
 
     (async () => {
       try {
-        // Step 2 — fetch fresh data from Supabase.
-        const [tR, aR, fR, iR, exR, hR, hcR] = await Promise.allSettled([
-          fetchTasks(),
-          fetchAnniversaries(),
-          fetchFolders(),
-          fetchIdeas(),
-          fetchExpenses(),
-          fetchHabits(),
-          fetchHabitCheckins(),
-        ]);
+        const data = await fetchAllPlannerDataSafe();
         if (cancelled) return;
 
-        if (tR.status === "rejected") logErr(tR.reason);
-        if (aR.status === "rejected") logErr(aR.reason);
-        if (fR.status === "rejected") logErr(fR.reason);
-        if (iR.status === "rejected") logErr(iR.reason);
-        if (exR.status === "rejected") logErr(exR.reason);
-        if (hR.status === "rejected") logErr(hR.reason);
-        if (hcR.status === "rejected") logErr(hcR.reason);
-
-        const t = tR.status === "fulfilled" ? tR.value : [];
-        const a = aR.status === "fulfilled" ? aR.value : [];
-        const f = fR.status === "fulfilled" ? fR.value : [];
-        const i = iR.status === "fulfilled" ? iR.value : [];
-        const ex = exR.status === "fulfilled" ? exR.value : [];
+        const t = data.tasks ?? [];
+        const a = data.anniversaries ?? [];
+        const f = data.folders ?? [];
+        const i = data.ideas ?? [];
+        const ex = data.expenses ?? [];
 
         setExpenses(ex);
-        if (hR.status === "fulfilled") setHabits(hR.value);
-        if (hcR.status === "fulfilled") setHabitCheckins(hcR.value);
+        if (data.habits) setHabits(data.habits);
+        if (data.habitCheckins) setHabitCheckins(data.habitCheckins);
 
         // Seed user's house expenses on first finance load (one-time per user).
-        if (ex.length === 0 && exR.status === "fulfilled") {
+        if (ex.length === 0 && data.expenses !== null) {
           const SEED_FLAG = "planner.expenses.seeded.v1";
           if (!window.localStorage.getItem(SEED_FLAG)) {
             const seeded = seedHouseExpenses();
@@ -301,13 +285,17 @@ export default function Planner({ session }: Props) {
 
   // Запускает попытку синхронизации очереди и отмечает «сбой», если есть
   // записи с неудачными попытками. Данные из очереди больше не удаляются.
+  function updateSyncIndicatorFromQueue() {
+    if (getQueueLength() > 0 || getQueueFailureCount() > 0) setHasSyncError(true);
+    else setHasSyncError(false);
+  }
+
   function runDrainQueue() {
-    return drainQueue((remaining) => setQueueLen(remaining))
-      .then((r) => {
-        const failures = getQueueFailureCount();
-        if (failures > 0 || r.failed > 0) setHasSyncError(true);
-        else if (r.remaining === 0) setHasSyncError(false);
-      })
+    return drainQueue((remaining) => {
+      setQueueLen(remaining);
+      updateSyncIndicatorFromQueue();
+    })
+      .then(() => updateSyncIndicatorFromQueue())
       .catch((err) => {
         setHasSyncError(true);
         logErr(err);
@@ -316,9 +304,8 @@ export default function Planner({ session }: Props) {
 
   function bumpQueueLen() {
     setQueueLen(getQueueLength());
+    updateSyncIndicatorFromQueue();
   }
-
-  // Helper: try to sync a mutation; if it fails, push to offline queue.
   function syncOrQueue(
     attempt: () => Promise<void>,
     entry: Parameters<typeof enqueueMutation>[0],
@@ -430,42 +417,21 @@ export default function Planner({ session }: Props) {
       // user explicitly asked to refresh from the server.
       if (!opts?.force && getQueueLength() > 0) return;
       setRefetching(true);
-      const REFETCH_MS = 20_000;
       try {
-        const [tR, aR, fR, iR, exR, hR, hcR] = await Promise.allSettled([
-          withTimeout(fetchTasks(), REFETCH_MS, "tasks"),
-          withTimeout(fetchAnniversaries(), REFETCH_MS, "anniversaries"),
-          withTimeout(fetchFolders(), REFETCH_MS, "folders"),
-          withTimeout(fetchIdeas(), REFETCH_MS, "ideas"),
-          withTimeout(fetchExpenses(), REFETCH_MS, "expenses"),
-          withTimeout(fetchHabits(), REFETCH_MS, "habits"),
-          withTimeout(fetchHabitCheckins(), REFETCH_MS, "habit_checkins"),
-        ]);
+        const data = await fetchAllPlannerDataSafe();
         if (cancelled) return;
-        const allOk =
-          tR.status === "fulfilled" &&
-          aR.status === "fulfilled" &&
-          fR.status === "fulfilled" &&
-          iR.status === "fulfilled" &&
-          exR.status === "fulfilled" &&
-          hR.status === "fulfilled" &&
-          hcR.status === "fulfilled";
-        if (tR.status === "fulfilled") setTasks(tR.value);
-        if (aR.status === "fulfilled") setAnniversaries(aR.value);
-        if (fR.status === "fulfilled") setFolders(fR.value);
-        if (iR.status === "fulfilled") setIdeas(iR.value);
-        if (exR.status === "fulfilled") setExpenses(exR.value);
-        if (hR.status === "fulfilled") setHabits(hR.value);
-        if (hcR.status === "fulfilled") setHabitCheckins(hcR.value);
-        if (allOk) {
-          setLastRefetchAt(Date.now());
-          setHasSyncError(false);
-        } else {
-          setHasSyncError(true);
-        }
+        if (data.tasks) setTasks(data.tasks);
+        if (data.anniversaries) setAnniversaries(data.anniversaries);
+        if (data.folders) setFolders(data.folders);
+        if (data.ideas) setIdeas(data.ideas);
+        if (data.expenses) setExpenses(data.expenses);
+        if (data.habits) setHabits(data.habits);
+        if (data.habitCheckins) setHabitCheckins(data.habitCheckins);
+        if (data.tasks) setLastRefetchAt(Date.now());
+        updateSyncIndicatorFromQueue();
       } catch (err) {
-        if (!cancelled) setHasSyncError(true);
         logErr(err);
+        updateSyncIndicatorFromQueue();
       } finally {
         if (!cancelled) setRefetching(false);
       }
