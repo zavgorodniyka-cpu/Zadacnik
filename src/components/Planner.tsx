@@ -1073,6 +1073,7 @@ export default function Planner({ session }: Props) {
             }}
           />
           <div className="flex items-center gap-1.5 sm:hidden">
+            {addBtn(true)}
             <PushButton />
             <NotificationsButton
               settings={notifySettings}
@@ -1081,7 +1082,6 @@ export default function Planner({ session }: Props) {
             <ThemeButton />
             {exportBtn}
             {signOutBtn}
-            {addBtn(true)}
           </div>
         </div>
 
